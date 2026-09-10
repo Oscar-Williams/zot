@@ -229,7 +229,7 @@ func (m *Manager) Discover(ctx context.Context) []error {
 		go func(extDir string) {
 			defer wg.Done()
 			if err := m.loadOne(ctx, extDir); err != nil {
-				errCh <- fmt.Errorf("%s: %w", extDir, err)
+				errCh <- err
 			}
 		}(j.dir)
 	}
@@ -396,14 +396,14 @@ func skillEntryPath(dir, entry string) (string, error) {
 func (m *Manager) loadOne(ctx context.Context, dir string) error {
 	mf, err := readManifest(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", dir, err)
 	}
 	if mf.Name == "" {
-		return errors.New("manifest: name is required")
+		return fmt.Errorf("%s: manifest: name is required", dir)
 	}
 	hasTheme := HasExtensionTheme(dir)
 	if mf.Exec == "" && !hasTheme && len(mf.Skills) == 0 {
-		return errors.New("manifest: exec, theme, or skills is required")
+		return fmt.Errorf("%s: manifest: exec, theme, or skills is required", dir)
 	}
 	if !mf.IsEnabled() {
 		// Quietly skip disabled extensions; zot ext list will show them.
@@ -430,7 +430,15 @@ func (m *Manager) loadOne(ctx context.Context, dir string) error {
 	}
 	if mf.Exec != "" {
 		if err := m.spawn(ctx, ext); err != nil {
-			return err
+			language := ""
+			if mf.Language != "" {
+				language = fmt.Sprintf(" (declared language: %q)", mf.Language)
+			}
+			logDetail := ""
+			if ext.LogPath != "" {
+				logDetail = "\n  stderr log: " + ext.LogPath
+			}
+			return fmt.Errorf("Extension %s failed to start.\n\n  exec: %q%s\n  error: %w\n  extension directory: %s%s", mf.Name, mf.Exec, language, err, dir, logDetail)
 		}
 	} else {
 		ext.readyOnce.Do(func() { close(ext.readyCh) })
@@ -506,7 +514,7 @@ func (m *Manager) LoadExplicit(ctx context.Context, paths []string) []error {
 		go func(extDir string) {
 			defer wg.Done()
 			if err := m.loadOne(ctx, extDir); err != nil {
-				errCh <- fmt.Errorf("%s: %w", extDir, err)
+				errCh <- err
 			}
 		}(abs)
 	}
@@ -727,7 +735,7 @@ func (m *Manager) spawn(ctx context.Context, ext *Extension) error {
 		return fmt.Errorf("stdout pipe (stderr log: %s): %w", logPath, err)
 	}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("spawn (stderr log: %s): %w", logPath, err)
+		return err
 	}
 	started = true
 	ext.cmd = cmd
