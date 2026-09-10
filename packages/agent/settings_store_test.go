@@ -2,6 +2,35 @@ package agent
 
 import "testing"
 
+func TestConfigSettingsStorePersistsFuzzySkillSuggest(t *testing.T) {
+	t.Setenv("ZOT_HOME", t.TempDir())
+	if err := SaveConfig(Config{Theme: "dark"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FuzzySkillSuggest != nil {
+		t.Fatal("missing preference should remain unset")
+	}
+	for _, enabled := range []bool{true, false} {
+		if err := (configSettingsStore{}).SetFuzzySkillSuggest(enabled); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.FuzzySkillSuggest == nil || *cfg.FuzzySkillSuggest != enabled {
+			t.Fatal("preference not persisted")
+		}
+		if cfg.Theme != "dark" {
+			t.Fatal("unrelated preference changed")
+		}
+	}
+}
+
 func TestConfigSettingsStorePersistsShowInstructionsAtStartup(t *testing.T) {
 	t.Setenv("ZOT_HOME", t.TempDir())
 	if err := SaveConfig(Config{Theme: "dark"}); err != nil {

@@ -1328,6 +1328,7 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 		NoTools:                       args.NoTools,
 		QuickModelShortcuts:           quickModelShortcuts,
 		RecursiveFileSuggest:          initialCfg.RecursiveFileSuggest,
+		FuzzySkillSuggest:             initialCfg.FuzzySkillSuggest,
 		RespectGitignore:              initialCfg.RespectGitignore,
 		CompactMode:                   initialCfg.CompactMode,
 		CollapseToolCall:              initialCfg.CollapseToolCall,

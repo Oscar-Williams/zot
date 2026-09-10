@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/sahilm/fuzzy"
 
 	"github.com/patriceckhart/zot/packages/agent/skills"
 	"github.com/patriceckhart/zot/packages/tui"
@@ -14,9 +15,10 @@ import (
 // (group dividers like "── extensions ───") are real entries
 // flagged with header=true; they render but aren't navigable.
 type slashCommand struct {
-	Name   string // with leading "/"
-	Desc   string
-	Header bool // true = visual divider, not selectable
+	Name           string // with leading "/"
+	Desc           string
+	Header         bool  // true = visual divider, not selectable
+	matchedIndexes []int // byte offsets in Name for fuzzy skill matches
 }
 
 // slashCancelsTurn reports whether the named slash command, when run
@@ -88,6 +90,7 @@ type slashSuggester struct {
 	// interactive mode can refresh discovery once instead of every frame.
 	skills           []slashCommand
 	skillInputActive bool
+	fuzzySkills      bool
 
 	// lastMatches is the list shown in the most recent Render call.
 	// Up/Down read it so they know which indexes to skip across
@@ -141,6 +144,47 @@ func (s *slashSuggester) SkillInputStarted(input string) bool {
 	started := active && !s.skillInputActive
 	s.skillInputActive = active
 	return started
+}
+
+// SetFuzzySkills changes skill matching without affecting other commands.
+func (s *slashSuggester) SetFuzzySkills(enabled bool) {
+	if s.fuzzySkills != enabled {
+		s.fuzzySkills = enabled
+		s.Reset()
+		s.lastMatches = nil
+	}
+}
+
+// fuzzySkillMatches ranks names only, breaking score ties by the index in
+// the alphabetically sorted catalog.
+func (s *slashSuggester) fuzzySkillMatches(query string) []slashCommand {
+	if query == "" {
+		return s.skills
+	}
+	names := make([]string, len(s.skills))
+	for i, c := range s.skills {
+		names[i] = strings.TrimPrefix(c.Name, skillCommandPrefix)
+	}
+	ranked := fuzzy.Find(query, names)
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].Score == ranked[j].Score {
+			return ranked[i].Index < ranked[j].Index
+		}
+		return ranked[i].Score > ranked[j].Score
+	})
+	var out []slashCommand
+	for _, match := range ranked {
+		c := s.skills[match.Index]
+		c.matchedIndexes = make([]int, len(match.MatchedIndexes))
+		for i, index := range match.MatchedIndexes {
+			c.matchedIndexes[i] = len(skillCommandPrefix) + index
+		}
+		if strings.EqualFold(names[match.Index], query) {
+			return []slashCommand{c}
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // SetJailed updates the current sandbox state. Called once per render
@@ -273,8 +317,9 @@ var hiddenSlashCommands = []string{
 
 func newSlashSuggester() *slashSuggester { return &slashSuggester{} }
 
-// matches returns the commands whose name has input as a prefix.
-// If input is just "/", everything is shown. The /session command exposes
+// matches uses name prefixes by default, or ranked name subsequences for
+// skills when explicitly enabled. If input is just "/", everything is shown.
+// The /session command exposes
 // its actions after the first space.
 func (s *slashSuggester) matches(input string) []slashCommand {
 	if input == "" || !strings.HasPrefix(input, "/") {
@@ -296,6 +341,9 @@ func (s *slashSuggester) matches(input string) []slashCommand {
 	catalog := s.allCatalog()
 	if strings.HasPrefix(matchPrefix, skillCommandPrefix) {
 		catalog = s.skills
+		if s.fuzzySkills {
+			return s.fuzzySkillMatches(input[len(skillCommandPrefix):])
+		}
 	}
 	var out []slashCommand
 	for _, c := range catalog {
@@ -486,7 +534,7 @@ func (s *slashSuggester) Render(input string, th tui.Theme, width int) []string 
 		if c.Header {
 			continue
 		}
-		if n := len(c.Name); n > nameWidth {
+		if n := runewidth.StringWidth(c.Name); n > nameWidth {
 			nameWidth = n
 		}
 	}
@@ -508,9 +556,9 @@ func (s *slashSuggester) Render(input string, th tui.Theme, width int) []string 
 			lines = append(lines, "")
 			continue
 		}
-		name := c.Name
-		if len(name) < nameWidth {
-			name = name + strings.Repeat(" ", nameWidth-len(name))
+		name := highlightedSlashName(c)
+		if n := runewidth.StringWidth(c.Name); n < nameWidth {
+			name += strings.Repeat(" ", nameWidth-n)
 		}
 		plain := "  " + name + "  " + c.Desc
 		if i == s.cursor {
@@ -527,6 +575,25 @@ func (s *slashSuggester) Render(input string, th tui.Theme, width int) []string 
 	// bar / editor below it.
 	lines = append(lines, "")
 	return lines
+}
+
+// highlightedSlashName uses emphasis without resetting the row's foreground
+// or selection background. Match offsets are UTF-8 byte indexes.
+func highlightedSlashName(c slashCommand) string {
+	if len(c.matchedIndexes) == 0 {
+		return c.Name
+	}
+	var out strings.Builder
+	match := 0
+	for index, r := range c.Name {
+		text := string(r)
+		if match < len(c.matchedIndexes) && index == c.matchedIndexes[match] {
+			text = tui.Bold(text)
+			match++
+		}
+		out.WriteString(text)
+	}
+	return out.String()
 }
 
 // Reset puts the cursor back to the first match. Call this whenever the

@@ -99,6 +99,20 @@ To force a specific skill, invoke it as a slash command. Typing `/skill:` opens 
 /skill:code-review focus on security issues
 ```
 
+By default, suggestions match case-insensitive name prefixes and are sorted
+alphabetically. Enable **fuzzy skill suggestions** in `/settings` to match
+characters in order anywhere in a skill name: `/skill:review` and `/skill:crv`
+can both find `code-review`. Results are ranked by relevance, with alphabetical
+tie-breaking, and matching characters are shown in bold, including in the
+selected row. Only names are searched, not descriptions or the `/skill:` prefix.
+An empty query still lists skills alphabetically; an exact name shows only that
+skill. Other slash-command suggestions and exact skill lookup during invocation
+are unchanged. Complete a fuzzy query before adding request text.
+
+The setting takes effect immediately and persists as `fuzzy_skill_suggest` in
+`$ZOT_HOME/config.json`. Missing or `false` preserves the default prefix behavior.
+You can turn it off at any time. Bold emphasis depends on terminal support.
+
 zot expands the command into a user message containing the complete skill
 body, its directory for resolving relative references, and any text following
 the command as the request. This bypasses model-side skill selection.

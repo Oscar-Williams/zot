@@ -95,6 +95,9 @@ type InteractiveConfig struct {
 	// whole project tree instead of browsing one directory at a time.
 	RecursiveFileSuggest *bool
 
+	// FuzzySkillSuggest opts into ranked skill-name subsequence suggestions.
+	FuzzySkillSuggest *bool
+
 	// RespectGitignore mirrors the persisted respect_gitignore flag at
 	// startup. nil means the default (on); when false the @-mention
 	// picker shows files matched by the project's root .gitignore.
@@ -361,6 +364,7 @@ type SettingsStore interface {
 	SetJailByDefault(enabled bool) error
 	SetOpenRouterServerTools(enabled bool) error
 	SetRecursiveFileSuggest(enabled bool) error
+	SetFuzzySkillSuggest(enabled bool) error
 	SetRespectGitignore(enabled bool) error
 	SetCompactMode(enabled bool) error
 	SetCollapseToolCall(enabled bool) error
@@ -681,6 +685,7 @@ func NewInteractive(cfg InteractiveConfig) *Interactive {
 		reloadErrors:      append([]string(nil), cfg.StartupExtensionErrors...),
 	}
 	i.fileSuggest.SetRecursive(cfg.RecursiveFileSuggest != nil && *cfg.RecursiveFileSuggest)
+	i.suggest.SetFuzzySkills(cfg.FuzzySkillSuggest != nil && *cfg.FuzzySkillSuggest)
 	i.fileSuggest.SetRespectGitignore(cfg.RespectGitignore == nil || *cfg.RespectGitignore)
 	if cfg.LlamaCPPConfig != nil {
 		baseURL, _, err := cfg.LlamaCPPConfig()
@@ -3562,6 +3567,12 @@ func (i *Interactive) openSettingsDialog() {
 			value: recursiveFiles,
 		},
 		{
+			key:   "fuzzy_skill_suggest",
+			label: "fuzzy skill suggestions",
+			desc:  "rank /skill: suggestions by name subsequence matches and emphasize matching characters",
+			value: i.cfg.FuzzySkillSuggest != nil && *i.cfg.FuzzySkillSuggest,
+		},
+		{
 			key:   "respect_gitignore",
 			label: "hide gitignored files in @-picker",
 			desc:  "skip files and directories matched by the project's root .gitignore (and .git) when picking files with @",
@@ -3938,6 +3949,21 @@ func (i *Interactive) applySettingToggle(key string, value bool) {
 		i.applyOpenRouterServerTools(value)
 		i.mu.Lock()
 		i.statusOK = "OpenRouter server tools " + onOff(value)
+		i.statusErr = ""
+		i.mu.Unlock()
+	case "fuzzy_skill_suggest":
+		if i.cfg.SettingsStore != nil {
+			if err := i.cfg.SettingsStore.SetFuzzySkillSuggest(value); err != nil {
+				i.mu.Lock()
+				i.statusErr = "settings: " + err.Error()
+				i.mu.Unlock()
+				return
+			}
+		}
+		i.cfg.FuzzySkillSuggest = &value
+		i.suggest.SetFuzzySkills(value)
+		i.mu.Lock()
+		i.statusOK = "fuzzy skill suggestions " + onOff(value)
 		i.statusErr = ""
 		i.mu.Unlock()
 	case "recursive_file_suggest":

@@ -87,6 +87,10 @@ type Config struct {
 	// directory browse. Toggle from /settings.
 	RecursiveFileSuggest *bool `json:"recursive_file_suggest,omitempty"`
 
+	// FuzzySkillSuggest enables ranked subsequence skill suggestions.
+	// nil/missing/false preserves prefix matching. Toggle from /settings.
+	FuzzySkillSuggest *bool `json:"fuzzy_skill_suggest,omitempty"`
+
 	// RespectGitignore controls whether the @-mention file picker hides
 	// files and directories matched by the project's root .gitignore (in
 	// both flat and recursive modes). nil/missing means the default,
