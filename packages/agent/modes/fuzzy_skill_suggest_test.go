@@ -114,14 +114,16 @@ func (s *fuzzySkillSettingsStore) SetFuzzySkillSuggest(value bool) error {
 }
 
 func TestFuzzySkillSetting(t *testing.T) {
+	// Exercise the normal repaint path, independent of the developer's terminal.
+	t.Setenv("TERM_PROGRAM", "")
 	for _, enabled := range []bool{false, true} {
-		i := NewInteractive(InteractiveConfig{FuzzySkillSuggest: &enabled})
+		i := NewInteractive(InteractiveConfig{Terminal: &cleanupTestTerminal{}, FuzzySkillSuggest: &enabled})
 		if i.suggest.fuzzySkills != enabled {
 			t.Fatal("startup preference ignored")
 		}
 	}
 	store := &fuzzySkillSettingsStore{}
-	i := NewInteractive(InteractiveConfig{SettingsStore: store})
+	i := NewInteractive(InteractiveConfig{Terminal: &cleanupTestTerminal{}, SettingsStore: store})
 	if i.suggest.fuzzySkills {
 		t.Fatal("default must be off")
 	}
