@@ -51,6 +51,20 @@ func TestReaderParsesCSIUHyperNumberAsSuper(t *testing.T) {
 	}
 }
 
+func TestReaderParsesRawCtrlGAsModifiedRune(t *testing.T) {
+	k := readKey(t, "\x07")
+	if k.Kind != KeyRune || k.Rune != 'g' || !k.Ctrl {
+		t.Fatalf("Read kind=%v rune=%q ctrl=%v, want ctrl+g", k.Kind, k.Rune, k.Ctrl)
+	}
+}
+
+func TestReaderParsesRawCtrlSAsModifiedRune(t *testing.T) {
+	k := readKey(t, "\x13")
+	if k.Kind != KeyRune || k.Rune != 's' || !k.Ctrl {
+		t.Fatalf("Read kind=%v rune=%q ctrl=%v, want ctrl+s", k.Kind, k.Rune, k.Ctrl)
+	}
+}
+
 func TestReaderParsesRawCtrlVAsClipboardPaste(t *testing.T) {
 	k := readKey(t, "\x16")
 	if k.Kind != KeyPasteClipboard || !k.Ctrl {

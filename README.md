@@ -162,6 +162,25 @@ To route zot-managed HTTP and HTTPS requests through one proxy, add `http_proxy`
 
 The setting is applied at startup to both HTTP and HTTPS traffic. Existing `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, and `https_proxy` environment variables take precedence for their corresponding protocol. `NO_PROXY` and `no_proxy` continue to control bypasses. Restart zot after changing the config file. If the URL contains proxy credentials, prefer protected environment variables because `config.json` is not a credential store.
 
+### Configurable shortcuts
+
+Interactive keybindings can be added to `$ZOT_HOME/config.json` under `keymap`. Each key is a case-insensitive chord using `ctrl`, `alt`/`option`, `shift`, or `cmd`/`super`, and each value is a slash command. This works for built-in commands, extension commands, and explicitly invoked skills. Note: keybindings requiring indistinguishable control sequences - such as Ctrl+H (translates to Backspace) and many Ctrl+Shift+letter chords - require enhanced keyboard reporting and so currently may not be used in certain terminals.
+
+```json
+{
+  "keymap": {
+    "ctrl+s": "/settings",
+    "ctrl+g": "/git-tools:status",
+    "alt+r": "/skill:code-review"
+  }
+}
+```
+
+Shortcuts run in the main interactive input and use the same dispatch path as
+typing the command. Invalid key names are ignored; values must begin with
+`/`. The emergency `ctrl+c`, `ctrl+d`, and `esc` bindings remain reserved.
+Shortcuts do not apply while a dialog or extension panel has focus.
+
 ## Persistent instructions (AGENTS.md)
 
 Use `AGENTS.md` to give zot standing instructions that layer **on top of** the default system prompt, without replacing it. This is the friendliest way to shape behavior (for example, taming local models that jump straight to code edits) because it adds guidance rather than taking over the base identity the way `SYSTEM.md` does.

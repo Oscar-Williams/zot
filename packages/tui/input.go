@@ -94,12 +94,23 @@ func (r *Reader) Read() (Key, error) {
 		return Key{Kind: KeyCtrlO}, nil
 	case b == 0x16:
 		return Key{Kind: KeyPasteClipboard, Ctrl: true}, nil
+	case b == 0x07:
+		// Legacy terminals encode Ctrl+G as BEL. There is no separate
+		// encoding for Ctrl+Shift+G, so expose the control letter for
+		// keymap matching; callers that need the distinction require an
+		// enhanced keyboard protocol.
+		return Key{Kind: KeyRune, Rune: 'g', Ctrl: true}, nil
 	case b == '\r', b == '\n':
 		return Key{Kind: KeyEnter}, nil
 	case b == '\t':
 		return Key{Kind: KeyTab}, nil
 	case b == 0x7f, b == 0x08:
 		return Key{Kind: KeyBackspace}, nil
+	case b >= 0x10 && b <= 0x1a:
+		// Raw terminals encode Ctrl+Q..Ctrl+Z as control bytes. The
+		// commonly used bindings above have dedicated KeyKinds; expose
+		// the remaining letters as modified runes for keymaps.
+		return Key{Kind: KeyRune, Rune: rune('a' + b - 1), Ctrl: true}, nil
 	case b == 0x1b:
 		return r.readEscape()
 	case b < 0x20:
@@ -407,8 +418,16 @@ func keyFromModifiedCode(code, mod int) (Key, bool) {
 		case 'v', 'V':
 			return Key{Kind: KeyPasteClipboard, Shift: shift, Alt: alt, Ctrl: true}, true
 		}
+		// Enhanced keyboard protocols preserve Ctrl for letters that do
+		// not have a dedicated KeyKind, such as Ctrl+H and Ctrl+S.
+		if (code >= 'a' && code <= 'z') || (code >= 'A' && code <= 'Z') || (code >= 0x20 && code <= 0x7e) {
+			return Key{Kind: KeyRune, Rune: rune(code), Shift: shift, Alt: alt, Ctrl: true, Super: super}, true
+		}
 	}
 	if code >= '0' && code <= '9' {
+		return Key{Kind: KeyRune, Rune: rune(code), Shift: shift, Alt: alt, Ctrl: ctrl, Super: super}, true
+	}
+	if code >= 0x20 && code <= 0x7e && (shift || alt || super) {
 		return Key{Kind: KeyRune, Rune: rune(code), Shift: shift, Alt: alt, Ctrl: ctrl, Super: super}, true
 	}
 	return Key{}, false

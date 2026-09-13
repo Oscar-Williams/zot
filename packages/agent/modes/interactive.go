@@ -140,6 +140,10 @@ type InteractiveConfig struct {
 	// forwards Command/Super keypresses, but Ctrl is the displayed chord.
 	QuickModelShortcuts []QuickModelShortcut
 
+	// Keymap maps configured key chords to slash commands. It is copied from
+	// config.json by the CLI and is only active in the main interactive input.
+	Keymap map[string]string
+
 	// ExtensionThemes returns themes bundled with loaded extensions.
 	ExtensionThemes func() []tui.ThemeOption
 
@@ -2448,6 +2452,28 @@ func (i *Interactive) handleKey(ctx context.Context, k tui.Key) (done bool) {
 		return false
 	}
 
+	if !keymapReservedKey(k) {
+		if command := configuredKeyCommand(i.cfg.Keymap, k); command != "" {
+			if !strings.HasPrefix(strings.TrimSpace(command), "/") {
+				i.mu.Lock()
+				i.statusErr = "keymap command must be a slash command: " + command
+				i.statusOK = ""
+				i.mu.Unlock()
+				i.invalidate()
+				return false
+			}
+			command = strings.TrimSpace(command)
+			parts := strings.Fields(command)
+			if len(parts) > 0 && slashCancelsTurn(parts[0]) {
+				i.cancelAndWaitForIdle()
+			}
+			i.ed.Clear()
+			i.suggest.Reset()
+			i.fileSuggest.Reset()
+			return i.runSlash(ctx, command)
+		}
+	}
+
 	if slot := quickModelShortcutSlot(k); slot > 0 {
 		i.applyQuickModelShortcut(slot)
 		return false
@@ -4534,7 +4560,7 @@ func (i *Interactive) runSlash(ctx context.Context, cmd string) (done bool) {
 		i.mu.Unlock()
 	case "/help":
 		i.mu.Lock()
-		i.helpBlock = renderHelpBlock(i.cfg.Theme, i.lastCols(), i.llamaConfigured)
+		i.helpBlock = renderHelpBlock(i.cfg.Theme, i.lastCols(), i.llamaConfigured, i.cfg.Keymap)
 		i.statusErr = ""
 		i.statusOK = ""
 		// Pin the viewport to the newest content so the help block,
