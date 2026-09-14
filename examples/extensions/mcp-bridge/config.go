@@ -74,24 +74,26 @@ func loadConfig(cwd string) (Config, error) {
 		return cfg, fmt.Errorf("global config %s: %w", globalPath, err)
 	}
 
+	var configErrors []error
+
 	// 2. Project config (overrides global per-server)
 	if cwd != "" {
 		projectPath := filepath.Join(cwd, ".zot", "mcp.json")
 		if err := mergeConfig(&cfg, projectPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return cfg, fmt.Errorf("project config %s: %w", projectPath, err)
+			configErrors = append(configErrors, fmt.Errorf("project config %s: %w", projectPath, err))
 		}
 	}
 
-	var expansionErrors []error
+	// Retained global servers must be expanded even if the project config failed.
 	for name, srv := range cfg.MCPServers {
 		if err := expandServerEnv(&srv); err != nil {
 			delete(cfg.MCPServers, name)
-			expansionErrors = append(expansionErrors, fmt.Errorf("server %q: %w", name, err))
+			configErrors = append(configErrors, fmt.Errorf("server %q: %w", name, err))
 			continue
 		}
 		cfg.MCPServers[name] = srv
 	}
-	return cfg, errors.Join(expansionErrors...)
+	return cfg, errors.Join(configErrors...)
 }
 
 // Expand only Claude Code's braced syntax, not shell expressions or bare $VAR.

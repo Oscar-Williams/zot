@@ -7,6 +7,51 @@ import (
 	"testing"
 )
 
+func TestConfigEnvironmentExpansionWithProjectError(t *testing.T) {
+	for _, kind := range []string{"malformed", "unreadable"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Setenv("ZOT_HOME", t.TempDir())
+			t.Setenv("MCP_TEST_VALUE", "synthetic-command")
+			const absent = "MCP_TEST_PROJECT_ERROR_UNSET"
+			// Setenv restores the original value after the test, including absence.
+			t.Setenv(absent, "")
+			if err := os.Unsetenv(absent); err != nil {
+				t.Fatal(err)
+			}
+			writeJSON(t, filepath.Join(os.Getenv("ZOT_HOME"), "mcp.json"), `{"mcpServers":{
+ "valid":{"command":"${MCP_TEST_VALUE}"},
+ "invalid":{"headers":{"Authorization":"secret-prefix ${MCP_TEST_PROJECT_ERROR_UNSET}"}}
+ }}`)
+			project := t.TempDir()
+			path := filepath.Join(project, ".zot", "mcp.json")
+			if kind == "malformed" {
+				writeJSON(t, path, `{`)
+			} else if err := os.MkdirAll(path, 0o755); err != nil {
+				// A directory produces a read error even when tests run as root.
+				t.Fatal(err)
+			}
+			cfg, err := loadConfig(project)
+			if err == nil {
+				t.Fatal("expected config error")
+			}
+			for _, want := range []string{"project config", path, "invalid", absent} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("diagnostic missing %q: %v", want, err)
+				}
+			}
+			if strings.Contains(err.Error(), "secret-prefix") {
+				t.Error("diagnostic exposed field value")
+			}
+			if got := cfg.MCPServers["valid"].Command; got != "synthetic-command" {
+				t.Errorf("global command = %q, want synthetic-command", got)
+			}
+			if _, ok := cfg.MCPServers["invalid"]; ok {
+				t.Error("server with missing variable must not be retained")
+			}
+		})
+	}
+}
+
 func TestConfigEnvironmentExpansion(t *testing.T) {
 	t.Setenv("ZOT_HOME", t.TempDir())
 	t.Setenv("MCP_TEST_VALUE", "synthetic\"\\token")
