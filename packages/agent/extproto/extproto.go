@@ -45,6 +45,7 @@ type RegisterToolFromExt struct {
 	Description string          `json:"description,omitempty"`
 	Schema      json.RawMessage `json:"schema"`
 	Deferred    bool            `json:"deferred,omitempty"`
+	Interactive bool            `json:"interactive,omitempty"`
 }
 
 type ReadyFromExt struct {
@@ -174,6 +175,12 @@ type CommandInvokedFromHost struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Args string `json:"args,omitempty"`
+}
+
+// ToolCancelFromHost asks the extension to stop an abandoned invocation.
+type ToolCancelFromHost struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
 }
 
 type ToolCallFromHost struct {

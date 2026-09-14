@@ -180,6 +180,11 @@ other stdout frame before `hello`.
  "capabilities":["commands","tools","panels"]}
 ```
 
+Include `"tool_cancel"` in `capabilities` to opt in to host cancellation
+notifications. The Go SDK advertises this automatically. The host only sends
+`tool_cancel` to extensions advertising that exact capability. Missing or
+unknown capabilities do not enable cancellation notifications.
+
 #### `register_command`
 
 ```json
@@ -489,6 +494,51 @@ tokens scoped to that extension).
 
 `args` is everything the user typed after the command name, trimmed.
 
+#### Interactive tools
+
+Set `"interactive": true` on `register_tool` for a tool that intentionally
+waits for user input. Omitted or false retains the normal 60-second reply
+timeout. Interactive tools have no host-imposed reply deadline, but context
+cancellation, context deadlines, and extension disconnects still end the call.
+Print, JSON, RPC, and other hosts without interactive tool support reject
+these calls with a tool error instead of opening an invisible panel.
+
+```json
+{"type":"register_tool","name":"ask_user",
+ "description":"Ask the user a question","schema":{"type":"object"},
+ "interactive":true}
+```
+
+The Go SDK provides a context-aware handler:
+
+```go
+e.InteractiveTool("ask_user", "Ask the user a question", schema,
+    func(ctx context.Context, args json.RawMessage) ext.ToolResult {
+        // Open your panel and arrange for its callbacks to deliver an answer.
+        // Use invocation-local state, including a unique panel ID.
+        defer closeQuestionPanel()
+        select {
+        case answer := <-answers:
+            return ext.TextResult(answer)
+        case <-ctx.Done():
+            return ext.TextErrorResult("Question cancelled")
+        }
+    })
+```
+
+Here `schema`, `answers`, and `closeQuestionPanel` are extension-owned values.
+Panel dismissal must also resolve the handler's wait. Cancellation is
+cooperative, the SDK cannot stop a handler that ignores its context. It
+cancels active handler contexts on `tool_cancel`, shutdown, or host EOF.
+Existing `Tool` and `DeferredTool` handlers remain source-compatible.
+
+The registration field is additive and does not change the protocol version.
+Older hosts ignore it and still apply their normal timeout. Legacy extensions
+that do not advertise `"tool_cancel"` receive no cancellation frames. The host
+still stops waiting and discards late results, but cannot request cleanup of
+abandoned work in those extensions. Both host and extension must support this
+feature for cancellable, unlimited waits.
+
 #### `tool_call`
 
 Sent when the LLM invokes a tool the extension registered. `args` is
@@ -501,8 +551,31 @@ responsible for validating/coercing it.
 ```
 
 Reply with `tool_result` within the host's tool timeout (default 60s).
-Missing the timeout surfaces an error to the model and the call is
-marked as failed.
+Interactive tools have no reply timeout. Missing a bounded timeout surfaces
+an error to the model and marks the call as `timed_out`. Request writes
+retain a separate bounded transport timeout, even for interactive tools.
+Cancellation during a blocked write disconnects the extension transport
+because a partially written frame cannot safely be withdrawn. Other pending
+calls on that transport also fail.
+
+#### `tool_cancel`
+
+Sent best-effort when a delivered tool invocation is abandoned by cancellation
+or its reply timeout, and only if the extension advertised `"tool_cancel"` in
+`hello.capabilities`. Normal completion does not send a cancellation frame.
+`id` is the opaque correlation ID from `tool_call`, not an agent transcript
+tool ID.
+
+```json
+{"type":"tool_cancel","id":"..."}
+```
+
+Stop the associated work, close its panel, and discard its pending state.
+Unknown or already-completed IDs should be ignored. Cancellation can arrive
+before the handler goroutine starts, so register cancellation state before
+dispatching work. Delivery is not guaranteed after a transport disconnect.
+Extensions must also clean up on shutdown and EOF. The host safely ignores
+late results for abandoned calls, including races with cancellation.
 
 #### `event`
 

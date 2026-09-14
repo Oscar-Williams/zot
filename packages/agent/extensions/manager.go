@@ -22,9 +22,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -66,8 +68,10 @@ type Extension struct {
 	stdout   io.ReadCloser
 	logFile  *os.File
 	helloAck bool
-	commands []extproto.RegisterCommandFromExt
-	tools    []extproto.RegisterToolFromExt
+	// Set during the handshake, before the extension is published.
+	toolCancel bool
+	commands   []extproto.RegisterCommandFromExt
+	tools      []extproto.RegisterToolFromExt
 
 	// readyCh is closed when the extension sends a ReadyFromExt
 	// frame, or when the host gives up waiting (registrationGrace).
@@ -132,6 +136,12 @@ type HostHooks interface {
 	OpenPanel(extName string, spec extproto.PanelSpec)
 	UpdatePanel(extName, panelID, title string, lines []string, footer string)
 	ClosePanel(extName, panelID string)
+}
+
+// Interactive tool support is opt-in so headless hosts fail closed.
+func (m *Manager) supportsInteractiveTools() bool {
+	h, ok := m.hooks.(interface{ SupportsInteractiveTools() bool })
+	return ok && h.SupportsInteractiveTools()
 }
 
 type commandRegistration struct {
@@ -768,6 +778,7 @@ func (m *Manager) spawn(ctx context.Context, ext *Extension) error {
 	}
 	// Trust the manifest's name; ignore mismatch from the hello.
 	ext.helloAck = true
+	ext.toolCancel = slices.Contains(hello.Capabilities, "tool_cancel")
 
 	ack, _ := extproto.Encode(extproto.HelloAckFromHost{
 		Type:            "hello_ack",
@@ -864,6 +875,9 @@ func (m *Manager) assumeReadyAfterIdle(ext *Extension) {
 // Returns when stdout closes.
 func (m *Manager) readLoop(ext *Extension, scanner *bufio.Scanner) {
 	defer func() {
+		if ext.stdin != nil {
+			_ = ext.stdin.Close()
+		}
 		// On close, drop every command + tool this extension owned so
 		// future invocations don't dangle. The subprocess is gone; we
 		// won't hear back about its commands or tool calls anymore.
@@ -1187,6 +1201,7 @@ type ToolInfo struct {
 	Description string
 	Schema      json.RawMessage
 	Deferred    bool
+	Interactive bool
 }
 
 // Tools returns a snapshot of every (extension, tool) pair currently
@@ -1204,6 +1219,7 @@ func (m *Manager) Tools() []ToolInfo {
 				Description: t.Description,
 				Schema:      t.Schema,
 				Deferred:    t.Deferred,
+				Interactive: t.Interactive,
 			})
 		}
 	}
@@ -1222,6 +1238,9 @@ func (m *Manager) HasTool(name string) bool {
 // the matching tool_result. Used by the core.Tool wrapper that the
 // agent registers per extension-defined tool.
 func (m *Manager) InvokeTool(ctx context.Context, name string, args json.RawMessage, timeout time.Duration) (extproto.ToolResultFromExt, error) {
+	if err := ctx.Err(); err != nil {
+		return extproto.ToolResultFromExt{}, err
+	}
 	m.mu.RLock()
 	ext, ok := m.toolIndex[name]
 	m.mu.RUnlock()
@@ -1234,6 +1253,11 @@ func (m *Manager) InvokeTool(ctx context.Context, name string, args json.RawMess
 	ext.mu.Lock()
 	ext.pendingTool[id] = ch
 	ext.mu.Unlock()
+	defer func() {
+		ext.mu.Lock()
+		delete(ext.pendingTool, id)
+		ext.mu.Unlock()
+	}()
 
 	frame, _ := extproto.Encode(extproto.ToolCallFromHost{
 		Type: "tool_call",
@@ -1241,26 +1265,41 @@ func (m *Manager) InvokeTool(ctx context.Context, name string, args json.RawMess
 		Name: name,
 		Args: args,
 	})
-	if _, err := ext.stdin.Write(frame); err != nil {
-		ext.mu.Lock()
-		delete(ext.pendingTool, id)
-		ext.mu.Unlock()
+	var disconnected <-chan struct{}
+	var err error
+	pipe, ordered := ext.stdin.(*orderedPipe)
+	if ordered {
+		disconnected = pipe.done
+		_, err = pipe.writeContext(ctx, frame, interceptTimeout)
+	} else {
+		_, err = ext.stdin.Write(frame)
+	}
+	if err != nil {
 		return extproto.ToolResultFromExt{}, fmt.Errorf("write: %w", err)
 	}
-
+	cancel := func() {
+		if ordered && ext.toolCancel {
+			frame, _ := extproto.Encode(extproto.ToolCancelFromHost{Type: "tool_cancel", ID: id})
+			_ = pipe.enqueue(frame, nil)
+		}
+	}
+	var deadline <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		deadline = timer.C
+	}
 	select {
 	case resp := <-ch:
 		return resp, nil
-	case <-time.After(timeout):
-		ext.mu.Lock()
-		delete(ext.pendingTool, id)
-		ext.mu.Unlock()
+	case <-deadline:
+		cancel()
 		return extproto.ToolResultFromExt{}, fmt.Errorf("timeout waiting for %s/%s: %w", ext.Manifest.Name, name, context.DeadlineExceeded)
 	case <-ctx.Done():
-		ext.mu.Lock()
-		delete(ext.pendingTool, id)
-		ext.mu.Unlock()
+		cancel()
 		return extproto.ToolResultFromExt{}, ctx.Err()
+	case <-disconnected:
+		return extproto.ToolResultFromExt{}, fmt.Errorf("extension %s disconnected", ext.Manifest.Name)
 	}
 }
 
@@ -1426,9 +1465,9 @@ func (m *Manager) All() []*Extension {
 	return out
 }
 
-// newCorrelationID returns a short non-cryptographic id. We don't
-// need uniqueness across processes, just within the lifetime of one
-// extension's pending map.
+var correlationSequence atomic.Uint64
+
+// newCorrelationID is unique across invocations in this host process.
 func newCorrelationID() string {
-	return strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	return fmt.Sprint(correlationSequence.Add(1))
 }

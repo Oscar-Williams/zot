@@ -27,20 +27,26 @@ type extensionTool struct {
 	manager     *Manager
 	timeout     time.Duration
 	deferred    bool
+	interactive bool
 }
 
 // NewTool returns a core.Tool that round-trips invocations through
 // mgr to the extension that registered (name, schema). The default
-// per-call timeout is 60 seconds; callers can override.
+// per-call timeout is 60 seconds. Interactive tools have no reply deadline.
 func NewTool(mgr *Manager, info ToolInfo) core.Tool {
+	timeout := 60 * time.Second
+	if info.Interactive {
+		timeout = 0
+	}
 	return &extensionTool{
 		name:        info.Name,
 		description: info.Description,
 		schema:      info.Schema,
 		extension:   info.Extension,
 		manager:     mgr,
-		timeout:     60 * time.Second,
+		timeout:     timeout,
 		deferred:    info.Deferred,
+		interactive: info.Interactive,
 	}
 }
 
@@ -56,6 +62,11 @@ func (t *extensionTool) Deferred() bool          { return t.deferred }
 func (t *extensionTool) Execute(ctx context.Context, args json.RawMessage, _ func(string)) (core.ToolResult, error) {
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
+	}
+	if t.interactive && !t.manager.supportsInteractiveTools() {
+		return core.ToolResult{Status: "failed", IsError: true, Content: []provider.Content{
+			provider.TextBlock{Text: "interactive extension tools require an interactive host"},
+		}}, nil
 	}
 	resp, err := t.manager.InvokeTool(ctx, t.name, args, t.timeout)
 	if err != nil {

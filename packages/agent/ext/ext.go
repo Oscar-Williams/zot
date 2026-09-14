@@ -33,6 +33,7 @@ package ext
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -56,6 +57,10 @@ type CommandHandler func(args string) Response
 // handler is responsible for parsing/validating it. Return a
 // ToolResult describing what zot should send back to the model.
 type ToolHandler func(args json.RawMessage) ToolResult
+
+// InteractiveToolHandler waits for input and must release its resources when
+// ctx is cancelled. Cancellation is cooperative, it cannot stop a goroutine.
+type InteractiveToolHandler func(ctx context.Context, args json.RawMessage) ToolResult
 
 // EventHandler is called for each lifecycle event the extension
 // subscribed to via Subscribe. The handler is invoked synchronously
@@ -300,7 +305,8 @@ type Extension struct {
 	mu            sync.Mutex
 	commands      map[string]CommandHandler
 	descriptions  []descTuple // ordered so register frames arrive in registration order
-	tools         map[string]ToolHandler
+	tools         map[string]InteractiveToolHandler
+	toolCancels   map[string]context.CancelFunc
 	toolDefs      []toolDef // ordered so register frames arrive in registration order
 	eventHandlers map[string]EventHandler
 	eventNames    []string // declared subscription order
@@ -331,6 +337,7 @@ type toolDef struct {
 	description string
 	schema      json.RawMessage
 	deferred    bool
+	interactive bool
 }
 
 // HostInfo is what the host (zot) tells us in HelloAck. Useful for
@@ -355,11 +362,12 @@ func New(name, version string) *Extension {
 		out:           os.Stdout,
 		stderr:        os.Stderr,
 		commands:      map[string]CommandHandler{},
-		tools:         map[string]ToolHandler{},
+		tools:         map[string]InteractiveToolHandler{},
+		toolCancels:   map[string]context.CancelFunc{},
 		eventHandlers: map[string]EventHandler{},
 		panelKeys:     map[string]func(key, text string){},
 		panelCloses:   map[string]func(){},
-		caps:          []string{"commands", "tools", "events", "panels"},
+		caps:          []string{"commands", "tools", "events", "panels", "tool_cancel"},
 	}
 }
 
@@ -449,9 +457,19 @@ func (e *Extension) DeferredTool(name, description string, schema json.RawMessag
 	e.registerTool(name, description, schema, true, fn)
 }
 
+// InteractiveTool registers a tool that intentionally waits for user input.
+// The interactive host imposes no reply deadline. Headless hosts reject it.
+// The handler must honor ctx cancellation and close any panel it owns.
+func (e *Extension) InteractiveTool(name, description string, schema json.RawMessage, fn InteractiveToolHandler) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.tools[name] = fn
+	e.toolDefs = append(e.toolDefs, toolDef{name: name, description: description, schema: schema, interactive: true})
+}
+
 func (e *Extension) registerTool(name, description string, schema json.RawMessage, deferred bool, fn ToolHandler) {
 	e.mu.Lock()
-	e.tools[name] = fn
+	e.tools[name] = func(_ context.Context, args json.RawMessage) ToolResult { return fn(args) }
 	e.toolDefs = append(e.toolDefs, toolDef{name: name, description: description, schema: schema, deferred: deferred})
 	e.mu.Unlock()
 }
@@ -538,6 +556,14 @@ func (e *Extension) Notify(level, message string) {
 // Run starts the protocol loop. Blocks until stdin closes (zot has
 // shut us down). Returns the first fatal error, or nil on clean exit.
 func (e *Extension) Run() error {
+	defer func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		for id, cancel := range e.toolCancels {
+			cancel()
+			delete(e.toolCancels, id)
+		}
+	}()
 	scanner := bufio.NewScanner(e.in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
@@ -604,6 +630,7 @@ func (e *Extension) Run() error {
 			Description: td.description,
 			Schema:      td.schema,
 			Deferred:    td.deferred,
+			Interactive: td.interactive,
 		})
 	}
 	var intercepts []string
@@ -677,15 +704,37 @@ func (e *Extension) Run() error {
 				e.respondTool(tc.ID, TextErrorResult(fmt.Sprintf("no handler for tool %q", tc.Name)))
 				continue
 			}
-			go func(id string, fn ToolHandler, args json.RawMessage) {
+			ctx, cancel := context.WithCancel(context.Background())
+			e.mu.Lock()
+			e.toolCancels[tc.ID] = cancel
+			e.mu.Unlock()
+			go func(id string, fn InteractiveToolHandler, args json.RawMessage) {
 				defer func() {
-					if r := recover(); r != nil {
+					cancel()
+					e.mu.Lock()
+					delete(e.toolCancels, id)
+					e.mu.Unlock()
+				}()
+				defer func() {
+					if r := recover(); r != nil && ctx.Err() == nil {
 						e.respondTool(id, TextErrorResult(fmt.Sprintf("panic: %v", r)))
 					}
 				}()
-				res := fn(args)
-				e.respondTool(id, res)
+				res := fn(ctx, args)
+				if ctx.Err() == nil {
+					e.respondTool(id, res)
+				}
 			}(tc.ID, fn, tc.Args)
+		case "tool_cancel":
+			var tc extproto.ToolCancelFromHost
+			if json.Unmarshal(line, &tc) != nil {
+				continue
+			}
+			e.mu.Lock()
+			if cancel := e.toolCancels[tc.ID]; cancel != nil {
+				cancel()
+			}
+			e.mu.Unlock()
 		case "event":
 			var ef extproto.EventFromHost
 			if err := json.Unmarshal(line, &ef); err != nil {

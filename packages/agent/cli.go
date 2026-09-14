@@ -72,6 +72,8 @@ func (h *interactiveExtHooks) ClearNotes(extName string) {
 		iv.ClearNotes(extName)
 	}
 }
+func (h *interactiveExtHooks) SupportsInteractiveTools() bool { return h.iv() != nil }
+
 func (h *interactiveExtHooks) OpenPanel(extName string, spec extproto.PanelSpec) {
 	if iv := h.iv(); iv != nil {
 		iv.OpenPanel(extName, spec)

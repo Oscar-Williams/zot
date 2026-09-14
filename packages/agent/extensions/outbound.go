@@ -65,6 +65,13 @@ func (p *orderedPipe) Write(data []byte) (int, error) {
 }
 
 func (p *orderedPipe) writeTimeout(data []byte, timeout time.Duration) (int, error) {
+	return p.writeContext(context.Background(), data, timeout)
+}
+
+func (p *orderedPipe) writeContext(ctx context.Context, data []byte, timeout time.Duration) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	if timeout <= 0 {
 		p.Close()
 		return 0, io.ErrClosedPipe
@@ -83,6 +90,10 @@ func (p *orderedPipe) writeTimeout(data []byte, timeout time.Duration) (int, err
 		return len(data), nil
 	case <-p.done:
 		return 0, io.ErrClosedPipe
+	case <-ctx.Done():
+		// A partially written frame cannot be safely withdrawn.
+		p.Close()
+		return 0, ctx.Err()
 	case <-timer.C:
 		p.Close()
 		return 0, fmt.Errorf("extension outbound write timed out: %w", context.DeadlineExceeded)
