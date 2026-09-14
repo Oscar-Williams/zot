@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 )
 
@@ -73,15 +74,59 @@ func loadConfig(cwd string) (Config, error) {
 		return cfg, fmt.Errorf("global config %s: %w", globalPath, err)
 	}
 
+	var configErrors []error
+
 	// 2. Project config (overrides global per-server)
 	if cwd != "" {
 		projectPath := filepath.Join(cwd, ".zot", "mcp.json")
 		if err := mergeConfig(&cfg, projectPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return cfg, fmt.Errorf("project config %s: %w", projectPath, err)
+			configErrors = append(configErrors, fmt.Errorf("project config %s: %w", projectPath, err))
 		}
 	}
 
-	return cfg, nil
+	// Retained global servers must be expanded even if the project config failed.
+	for name, srv := range cfg.MCPServers {
+		if err := expandServerEnv(&srv); err != nil {
+			delete(cfg.MCPServers, name)
+			configErrors = append(configErrors, fmt.Errorf("server %q: %w", name, err))
+			continue
+		}
+		cfg.MCPServers[name] = srv
+	}
+	return cfg, errors.Join(configErrors...)
+}
+
+// Expand only Claude Code's braced syntax, not shell expressions or bare $VAR.
+var envReference = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
+
+func expandServerEnv(srv *ServerConfig) error {
+	var missing []error
+	expand := func(field, value string) string {
+		return envReference.ReplaceAllStringFunc(value, func(ref string) string {
+			parts := envReference.FindStringSubmatch(ref)
+			if value, ok := os.LookupEnv(parts[1]); ok {
+				return value
+			}
+			if parts[2] != "" {
+				return parts[3]
+			}
+			// Never include field values: they may contain credentials.
+			missing = append(missing, fmt.Errorf("%s: environment variable %s is not set", field, parts[1]))
+			return ref
+		})
+	}
+	srv.Command = expand("command", srv.Command)
+	for i, arg := range srv.Args {
+		srv.Args[i] = expand(fmt.Sprintf("args[%d]", i), arg)
+	}
+	for k, value := range srv.Env {
+		srv.Env[k] = expand("env", value)
+	}
+	srv.URL = expand("url", srv.URL)
+	for k, value := range srv.Headers {
+		srv.Headers[k] = expand("headers", value)
+	}
+	return errors.Join(missing...)
 }
 
 // mergeConfig reads a JSON config file and merges its servers into cfg.

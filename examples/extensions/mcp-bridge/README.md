@@ -19,6 +19,18 @@ This extension reads MCP server configurations from standard locations (same for
 - **Slash commands** — `/mcp` to check status, start/stop/restart servers
 - **Better error messages** — context-aware errors with actionable suggestions
 
+## Environment variables
+
+Like [Claude Code](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json), the bridge expands `${VAR}` and `${VAR:-default}` in `command`, `args`, `env` values, `url`, and `headers` values. This is client configuration compatibility, not a requirement of the MCP protocol.
+
+```json
+{"mcpServers":{"api":{"transport":"streamable-http","url":"${API_BASE_URL:-https://api.example.com}/mcp","headers":{"Authorization":"Bearer ${API_KEY}"}}}}
+```
+
+Expansion uses the bridge process environment after global/project configurations are merged. Defaults apply to unset variables; an explicitly empty variable stays empty. Values are expanded once, without shell execution, bare `$VAR` expansion, nested defaults, or references to sibling `env` entries. Config files are not rewritten. A missing variable without a default disables that server and reports the server, field, and variable name, never the field value; other valid servers remain available.
+
+If the project config cannot be read or parsed, the bridge reports that error and still expands and validates retained global servers. Servers with missing required variables are excluded in this case too.
+
 ## Quick Start
 
 1. **Build the extension:**
