@@ -229,6 +229,15 @@ Standard MCP config — same as Claude Desktop, with zot-specific extensions:
     "you": {
       "transport": "streamable-http",
       "url": "https://api.you.com/mcp?profile=free"
+    },
+
+    // Serply Google-backed search (streamable-http, keyed)
+    "serply": {
+      "transport": "streamable-http",
+      "url": "https://api.serply.io/mcp",
+      "headers": {
+        "X-Api-Key": "${SERPLY_API_KEY}"
+      }
     }
   }
 }
@@ -257,6 +266,53 @@ the template:
 
 The authenticated endpoint does not expose `you-finance` by default. Request
 it explicitly with the `?tools=` URL parameter or the `X-Allowed-Tools` header.
+
+### Serply template
+
+`/mcp setup add serply` registers the [Serply](https://serply.io) MCP server,
+which returns Google-backed results. It has no keyless profile, so the template
+is the first one that writes a `headers` entry:
+
+```jsonc
+{
+  "mcpServers": {
+    "serply": {
+      "transport": "streamable-http",
+      "url": "https://api.serply.io/mcp",
+      "headers": {
+        "X-Api-Key": "${SERPLY_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+The template writes the variable reference, not the key, so `mcp.json` holds no
+secret and stays safe to commit or sync. The bridge expands it from its own
+environment at load time (see [Environment variables](#environment-variables));
+with `SERPLY_API_KEY` unset, this server is disabled and reported by name while
+every other server keeps working. Get a key at
+[serply.io](https://serply.io); the API reference is at
+[serply.io/docs](https://serply.io/docs).
+
+The server exposes 14 tools, so it covers several verticals rather than one
+general search:
+
+| tool | returns |
+|------|---------|
+| `google_search` | Google organic results |
+| `google_news_search` | Google News |
+| `google_scholar_search` | Google Scholar, including citation counts |
+| `google_jobs_search` | Google Jobs |
+| `google_maps_search` | Google Maps places |
+| `google_video_search` | Google video results |
+| `bing_search` | Bing organic results |
+| `amazon_product_search` | Amazon product listings |
+| `scrape_url` | a URL's content through the proxy layer |
+| `reddit_subreddit_posts`, `reddit_subreddit_about`, `reddit_user_posts`, `reddit_post_comments`, `reddit_post` | Reddit subreddits, users, posts, and comments |
+
+They reach the model as `mcp__serply__google_scholar_search` and so on, per
+[Tool Naming](#tool-naming).
 
 ## How It Works
 
