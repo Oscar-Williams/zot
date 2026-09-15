@@ -183,6 +183,10 @@ type InteractiveConfig struct {
 	// the catalog before /model opens.
 	RefreshLlamaCPPModels func(context.Context) error
 
+	// RefreshLMStudioModels is a no-op until a server URL is registered.
+	RefreshLMStudioModels func(context.Context) error
+	LMStudioConfigured    func() bool
+
 	// BuildAgent is called after a successful login to (re)construct the
 	// agent with the fresh credential. It returns the new agent and
 	// the concrete provider/model in use.
@@ -2198,7 +2202,11 @@ func (i *Interactive) handleKey(ctx context.Context, k tui.Key) (done bool) {
 			i.submitManualOAuthCode(act.SubmitCode)
 		}
 		if act.SaveLlama {
-			i.saveLlamaCPPLogin(act.LlamaURL, act.LlamaAPIKey)
+			if act.Provider == provider.LMStudioProviderID {
+				i.saveLMStudioLogin(act.LlamaURL, act.LlamaAPIKey)
+			} else {
+				i.saveLlamaCPPLogin(act.LlamaURL, act.LlamaAPIKey)
+			}
 		}
 		return false
 	}
@@ -4533,15 +4541,30 @@ func (i *Interactive) runSlash(ctx context.Context, cmd string) (done bool) {
 	case "/model":
 		if len(parts) >= 2 {
 			i.applyModelSelection("", parts[1])
-		} else if i.llamaConfigured && i.cfg.RefreshLlamaCPPModels != nil {
+		} else if (i.llamaConfigured && i.cfg.RefreshLlamaCPPModels != nil) || (i.cfg.LMStudioConfigured != nil && i.cfg.LMStudioConfigured() && i.cfg.RefreshLMStudioModels != nil) {
 			i.mu.Lock()
 			i.statusOK = "refreshing models"
 			i.statusErr = ""
 			i.mu.Unlock()
 			go func() {
-				refreshCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-				defer cancel()
-				i.modelRefresh <- modelRefreshResult{err: i.cfg.RefreshLlamaCPPModels(refreshCtx)}
+				refresh := func(fn func(context.Context) error) error {
+					refreshCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+					defer cancel()
+					return fn(refreshCtx)
+				}
+				var err error
+				if i.cfg.RefreshLMStudioModels != nil {
+					err = refresh(i.cfg.RefreshLMStudioModels)
+				}
+				if i.cfg.RefreshLlamaCPPModels != nil {
+					if llamaErr := refresh(i.cfg.RefreshLlamaCPPModels); err == nil {
+						err = llamaErr
+					}
+				}
+				select {
+				case i.modelRefresh <- modelRefreshResult{err: err}:
+				case <-ctx.Done():
+				}
 			}()
 		} else {
 			i.openModelPickerAfterRefresh(nil)
@@ -4872,6 +4895,9 @@ func (i *Interactive) doLogout(target string) {
 				errs = append(errs, p+": "+err.Error())
 				continue
 			}
+		}
+		if p == provider.LMStudioProviderID {
+			provider.SetManagedModelsForProvider(provider.LMStudioProviderID, nil)
 		}
 		if p == i.cfg.Provider {
 			clearedCurrent = true

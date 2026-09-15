@@ -105,8 +105,10 @@ func ValidateAndRepairConfig() {
 			// Gateway providers can serve routed model ids like
 			// "deepseek/deepseek-v4-flash" even when the local catalog does not
 			// know them. Preserve only routed ids; plain typos are still repaired.
-			if isGatewayProvider(cfg.Provider) && isGatewayRoutedModelID(cfg.Model) {
-				// Provider is a router and the id is route-qualified; preserve it.
+			if cfg.Provider == provider.LMStudioProviderID || (isGatewayProvider(cfg.Provider) && isGatewayRoutedModelID(cfg.Model)) {
+				// Local discovery is transient. Preserve the selected LM Studio
+				// ID even if another provider has an identically named model.
+				// Routed gateway IDs are also valid without a catalog entry.
 			} else if m, err := provider.FindModel("", cfg.Model); err == nil {
 				fix := defaultModelForProvider(cfg.Provider)
 				fmt.Fprintf(os.Stderr,
@@ -114,7 +116,7 @@ func ValidateAndRepairConfig() {
 					cfg.Model, m.Provider, cfg.Provider, fix)
 				cfg.Model = fix
 				changed = true
-			} else if cfg.Provider != "ollama" && cfg.Provider != provider.LlamaCPPProviderID {
+			} else if cfg.Provider != "ollama" && cfg.Provider != provider.LlamaCPPProviderID && cfg.Provider != provider.LMStudioProviderID {
 				// Model id not in any catalog. Reset to provider's default.
 				fix := defaultModelForProvider(cfg.Provider)
 				fmt.Fprintf(os.Stderr,
@@ -142,6 +144,11 @@ func ValidateAndRepairConfig() {
 func RefreshModelsAsync() {
 	go refreshModels()
 	go refreshCopilotModelAvailability()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = refreshLMStudioModels(ctx, apiKeyCommandSkip)
+	}()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -185,7 +192,7 @@ func refreshLlamaCPPModels(ctx context.Context, commandMode apiKeyCommandMode) e
 	if err != nil {
 		return err
 	}
-	provider.SetManagedModels(provider.LlamaCPPModels(models, client.ServerURL))
+	provider.SetManagedModelsForProvider(provider.LlamaCPPProviderID, provider.LlamaCPPModels(models, client.ServerURL))
 	return nil
 }
 
@@ -263,6 +270,8 @@ func refreshModels() {
 		return
 	}
 	provider.SetLiveModels(all)
+	// Keep explicit metadata overrides above refreshed server catalogs.
+	LoadUserModels()
 	_ = provider.SaveCache(ModelCachePath(), provider.ModelCache{
 		FetchedAt: modelCacheFetchedAt(cached, !cacheFresh, time.Now().UTC()),
 		Models:    all,

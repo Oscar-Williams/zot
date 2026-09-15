@@ -752,6 +752,45 @@ You can also add models to your `models.json` so you don't need flags every time
 
 The `ollama` provider uses the OpenAI chat completions protocol internally, so it also works with any OpenAI-compatible server (vLLM, LM Studio, LocalAI, etc.).
 
+### Local models with LM Studio
+
+Register an LM Studio server through `/login` -> API key -> `lmstudio`.
+Enter its server URL (for example `http://localhost:1234`) and an optional
+API key. The URL is required and is stored in `auth.json`. Zot does not
+probe localhost or discover LM Studio models until a server URL is registered.
+An API key alone does not enable discovery.
+
+After registration, zot refreshes the model list in the background on startup,
+after saving the connection, and when opening `/model`. Selecting or resuming
+an LM Studio model also refreshes its metadata. Choose a discovered model in
+`/model`, or use `zot --provider lmstudio --model <id>` after registration.
+Registration never changes your selected model or provider.
+
+Discovery prefers `/api/v1/models` and falls back to `/v1/models` if the native
+endpoint returns 404, 405, or 501. Native discovery excludes embedding models
+and uses loaded instance IDs and their configured context limits when present.
+Unloaded models use their model keys and advertised maximum context limits.
+The fallback only provides IDs, so embedding filtering there is best-effort.
+Quantization-specific keys are preserved, but zot does not expand the native
+API's separate variant list into additional model choices.
+
+Missing context metadata defaults to 32,768 tokens. Output defaults to at most
+4,096 tokens (or a quarter of the context window for smaller models).
+These are estimates, not server guarantees. Discovered models have zero API
+pricing, and reasoning controls are not enabled automatically from capability
+metadata. Token usage still comes from inference responses. Override metadata
+through `models.json` under `lmstudio` when needed, including the context limit
+for models that LM Studio will load with a smaller context than advertised.
+User overrides take precedence. Discovery does not change metadata for other
+providers or the coding-agent workflow.
+
+Listing models does not load or download them. Inference with an unloaded
+model depends on LM Studio's auto-loading settings. The discovered catalog is
+in-memory only, and a failed refresh retains the previous snapshot in that
+process. `/model` reports discovery failures without blocking other providers.
+Use `/logout lmstudio` to remove the connection and stop discovery.
+Background refresh never executes API-key commands.
+
 ### Local models with llama.cpp router mode
 
 zot can connect to a recent [llama.cpp](https://github.com/ggml-org/llama.cpp) router, manage its GGUF files, and use loaded models through the router's OpenAI-compatible inference API. This is separate from Ollama. An Ollama server normally listens on port `11434` and should use zot's `ollama` provider instead.

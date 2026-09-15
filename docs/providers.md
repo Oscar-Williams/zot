@@ -208,6 +208,58 @@ export OPENROUTER_API_KEY=...
 zot --provider openrouter
 ```
 
+## Local LM Studio server
+
+Register the `lmstudio` provider through `/login`, choose `api key`, and select
+`LM Studio`. Enter the server URL, for example `http://localhost:1234`, followed
+by an optional API key. Zot validates the URL and stores the connection in
+`$ZOT_HOME/auth.json`. Saving it does not require the server to be online.
+
+A registered server URL is required for discovery. Zot does not probe localhost,
+and an API key alone does not enable discovery. Unlike llama.cpp's
+`LLAMA_BASE_URL`, `LMSTUDIO_BASE_URL` is not a registration mechanism. Your
+current provider and selected model do not change when registering a server.
+
+Open `/model` to refresh and select a discovered model. Zot also refreshes after
+saving the connection, in the background on startup, and when selecting or
+resuming an LM Studio model. After registration, you can select a model directly:
+
+```sh
+zot --provider lmstudio --model my-local-model
+```
+
+Discovery prefers `/api/v1/models` and falls back to `/v1/models` when the native
+endpoint returns 404, 405, or 501. Authentication errors do not trigger fallback.
+The native list excludes entries explicitly marked as embedding models. The
+fallback only supplies IDs, so embedding filtering is best-effort.
+
+Loaded models use their instance IDs and configured context lengths. Unloaded
+models use their keys and advertised maximum context lengths. Quantization-specific
+keys are preserved, but the separate native variant list is not expanded into
+additional choices. Listing models does not load or download them. Inference
+with an unloaded model depends on LM Studio's auto-loading settings. There is
+no `/llama`-style management interface for LM Studio.
+
+Missing context metadata defaults to 32,768 tokens. Output defaults to at most
+4,096 tokens, or a quarter of the context window for smaller models. These are
+estimates, not server guarantees. Discovered models have zero API pricing, and
+token usage comes from inference responses. Reasoning controls are not enabled
+automatically from capability metadata, which does not mean server-side reasoning
+is disabled. Override metadata under `lmstudio` in `$ZOT_HOME/models.json`,
+especially when an unloaded model will use a smaller context than advertised.
+User entries take precedence over discovery.
+
+The discovered catalog stays in memory, separate from the six-hour cloud model
+cache and llama.cpp's entries. Failed refreshes retain the previous snapshot,
+and `/model` reports discovery errors while keeping other providers accessible.
+Use `/logout lmstudio` to remove the connection and stop discovery. Background
+refresh never executes API-key commands.
+
+The existing coding loop, tools, permissions, and built-in provider pricing
+remain unchanged. For older builds without `LM Studio` in `/login`, the manual
+OpenAI-compatible setup in [README.md](../README.md#local-models-with-ollama)
+remains available.
+
 ## Local llama.cpp router
 
 The `llama.cpp` provider connects to a multi-model router and is separate from the `ollama` provider. Ollama normally uses `http://localhost:11434`; entering that URL for llama.cpp management produces a 404 because Ollama does not implement the router endpoints.

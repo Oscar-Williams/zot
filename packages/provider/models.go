@@ -508,6 +508,9 @@ func activeModels(availableOnly bool) []Model {
 		model.ReasoningLevelMap = maps.Clone(model.ReasoningLevelMap)
 		key := model.Provider + "\x00" + model.ID
 		if i, ok := index[key]; ok {
+			if out[i].Source == "user" {
+				continue
+			}
 			out[i] = model
 			continue
 		}
@@ -556,6 +559,24 @@ func SetManagedModels(models []Model) {
 	activeMu.Lock()
 	defer activeMu.Unlock()
 	managedModels = append([]Model(nil), models...)
+}
+
+// SetManagedModelsForProvider replaces only one local server's entries.
+func SetManagedModelsForProvider(providerID string, models []Model) {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	kept := managedModels[:0]
+	for _, m := range managedModels {
+		if m.Provider != providerID {
+			kept = append(kept, m)
+		}
+	}
+	managedModels = kept
+	for _, m := range models {
+		if m.Provider == providerID {
+			managedModels = append(managedModels, m)
+		}
+	}
 }
 
 // FindModel returns a Model by id, optionally constrained by provider.

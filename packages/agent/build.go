@@ -174,7 +174,7 @@ func defaultModelForProvider(prov string) string {
 		return "deepseek-v4-pro"
 	case "google":
 		return "gemini-2.5-pro"
-	case "ollama", provider.LlamaCPPProviderID:
+	case "ollama", provider.LlamaCPPProviderID, provider.LMStudioProviderID:
 		return ""
 	case "moonshotai", "moonshotai-cn":
 		return "kimi-k2.6"
@@ -231,7 +231,7 @@ func defaultModelForProvider(prov string) string {
 // auto-fallback logic that picks any logged-in provider when the user's
 // preferred one has no credentials.
 var knownProviders = []string{
-	"anthropic", "openai", "openai-codex", "openai-responses", "kimi", "deepseek", "google", "ollama", provider.LlamaCPPProviderID,
+	"anthropic", "openai", "openai-codex", "openai-responses", "kimi", "deepseek", "google", "ollama", provider.LlamaCPPProviderID, provider.LMStudioProviderID,
 	"moonshotai", "moonshotai-cn",
 	"cerebras", "groq", "xai", "together", "huggingface", "openrouter", "gondola",
 	"mistral", "zai",
@@ -410,7 +410,7 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 		// default model are skipped because selecting either one here would
 		// fail before the user can choose a model.
 		for _, other := range knownProviders {
-			if other == provName || other == "ollama" || other == provider.LlamaCPPProviderID {
+			if other == provName || other == "ollama" || other == provider.LlamaCPPProviderID || other == provider.LMStudioProviderID {
 				continue
 			}
 			if !CredentialAvailable(other) {
@@ -425,7 +425,7 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 
 	model := firstNonEmpty(args.Model, cfg.Model)
 	if model == "" {
-		if provName == "ollama" || provName == provider.LlamaCPPProviderID {
+		if provName == "ollama" || provName == provider.LlamaCPPProviderID || provName == provider.LMStudioProviderID {
 			return Resolved{}, fmt.Errorf("%s requires --model or a model selected from its manager", provName)
 		}
 		model = defaultModelForProvider(provName)
@@ -441,8 +441,12 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 			model = defaultModelForProvider(provName)
 		}
 	}
+	if provName == provider.LMStudioProviderID && LMStudioConfigured() {
+		// Restore transient metadata when resuming a local model after restart.
+		_ = RefreshLMStudioModels(context.Background())
+	}
 	resolvedModel, err := provider.FindModel(provName, model)
-	if err != nil && (provName == "ollama" || provName == provider.LlamaCPPProviderID) {
+	if err != nil && (provName == "ollama" || provName == provider.LlamaCPPProviderID || provName == provider.LMStudioProviderID) {
 		// Local providers are intentionally open-catalogue: any model id the
 		// configured server understands is valid, even if it is not cached.
 		resolvedModel = provider.Model{
@@ -453,6 +457,10 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 			MaxOutput:     16384,
 			BaseURL:       args.BaseURL,
 			Source:        provName,
+		}
+		if provName == provider.LMStudioProviderID {
+			resolvedModel.ContextWindow = 32768
+			resolvedModel.MaxOutput = 4096
 		}
 		err = nil
 	}
@@ -535,11 +543,24 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 	// user didn't pass --base-url, use the model's URL. For ollama,
 	// keep http://localhost:11434 as a fallback only after the model
 	// metadata has had a chance to provide a custom baseUrl.
-	if args.BaseURL == "" && resolvedModel.BaseURL != "" {
+	if args.BaseURL == "" && resolvedModel.BaseURL != "" && (provName != provider.LMStudioProviderID || resolvedModel.Source == "user") {
+		// LM Studio discovery can retain an older snapshot on failure.
+		// Use its currently registered endpoint below, never a stale URL
+		// with the credentials for a newly registered server.
 		args.BaseURL = resolvedModel.BaseURL
 	}
 	if args.BaseURL == "" && provName == "ollama" {
 		args.BaseURL = "http://localhost:11434"
+	}
+	if args.BaseURL == "" && provName == provider.LMStudioProviderID {
+		root, _, configErr := resolveLMStudioConfig(context.Background(), apiKeyCommandExecute)
+		if configErr != nil {
+			return Resolved{}, configErr
+		}
+		if root == "" {
+			return Resolved{}, fmt.Errorf("LM Studio requires a server URL registered through /login or an explicit --base-url")
+		}
+		args.BaseURL = root + "/v1"
 	}
 	if args.BaseURL == "" && provName == provider.LlamaCPPProviderID {
 		managementURL, _, configErr := ResolveLlamaCPPConfig()
@@ -814,7 +835,7 @@ func (r Resolved) NewClient() provider.Client {
 	switch r.Provider {
 	case "ollama":
 		return wrap(provider.NewOpenAI(r.Credential, r.BaseURL))
-	case provider.LlamaCPPProviderID:
+	case provider.LlamaCPPProviderID, provider.LMStudioProviderID:
 		credential := r.Credential
 		if credential == "local" {
 			credential = ""

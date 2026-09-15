@@ -399,6 +399,14 @@ func resolveCredentialFull(ctx context.Context, provider, explicit string, comma
 		if v := os.Getenv("DEEPSEEK_API_KEY"); v != "" {
 			return v, "apikey", "", nil
 		}
+	case "lmstudio":
+		baseURL, apiKey, resolveErr := resolveLMStudioConfig(ctx, commandMode)
+		if resolveErr != nil {
+			return "", "", "", resolveErr
+		}
+		if baseURL != "" {
+			return firstNonEmpty(apiKey, "local"), "apikey", "", nil
+		}
 	case "llama.cpp":
 		baseURL, apiKey, resolveErr := resolveLlamaCPPConfig(ctx, commandMode)
 		if resolveErr != nil {

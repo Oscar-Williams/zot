@@ -184,8 +184,8 @@ func (d *loginDialog) Render(th tui.Theme, width int) []string {
 		}
 		lines = append(lines, frameRule(th, width))
 	case loginStepLlamaURL:
-		lines = append(lines, frameHeader(th, "login - api key - llama.cpp", width))
-		lines = append(lines, th.FG256(th.Muted, "llama.cpp router URL:"))
+		lines = append(lines, frameHeader(th, "login - api key - "+providerLabel(d.provider), width))
+		lines = append(lines, th.FG256(th.Muted, "server URL:"))
 		if d.llamaEd == nil {
 			d.llamaEd = tui.NewEditor(th.AccentBar(th.Accent))
 		}
@@ -196,8 +196,8 @@ func (d *loginDialog) Render(th tui.Theme, width int) []string {
 		}
 		lines = append(lines, "", th.FG256(th.Muted, "enter continues - esc cancels"), frameRule(th, width))
 	case loginStepLlamaKey:
-		lines = append(lines, frameHeader(th, "login - api key - llama.cpp", width))
-		lines = append(lines, th.FG256(th.Muted, "router: "+d.llamaURL), "", th.FG256(th.Muted, "API key (optional):"))
+		lines = append(lines, frameHeader(th, "login - api key - "+providerLabel(d.provider), width))
+		lines = append(lines, th.FG256(th.Muted, "server: "+d.llamaURL), "", th.FG256(th.Muted, "API key (optional):"))
 		if d.llamaEd == nil {
 			d.llamaEd = tui.NewEditor(th.AccentBar(th.Accent))
 		}
@@ -537,7 +537,7 @@ func (d *loginDialog) handleProviderKey(k tui.Key) loginDialogAction {
 			return loginDialogAction{}
 		}
 		d.provider = providers[d.cursor]
-		if d.method == "apikey" && d.provider == provider.LlamaCPPProviderID {
+		if d.method == "apikey" && (d.provider == provider.LlamaCPPProviderID || d.provider == provider.LMStudioProviderID) {
 			d.step = loginStepLlamaURL
 			d.llamaEd = nil
 			d.message = ""
@@ -566,7 +566,11 @@ func (d *loginDialog) handleLlamaKey(k tui.Key) loginDialogAction {
 	value := strings.TrimSpace(d.llamaEd.SubmitValue())
 	d.llamaEd.Clear()
 	if d.step == loginStepLlamaURL {
-		normalized, err := provider.NormalizeLlamaCPPURL(value)
+		normalize := provider.NormalizeLlamaCPPURL
+		if d.provider == provider.LMStudioProviderID {
+			normalize = provider.NormalizeLMStudioURL
+		}
+		normalized, err := normalize(value)
 		if err != nil {
 			d.message = err.Error()
 			return loginDialogAction{}
@@ -578,7 +582,7 @@ func (d *loginDialog) handleLlamaKey(k tui.Key) loginDialogAction {
 		return loginDialogAction{}
 	}
 	return loginDialogAction{
-		SaveLlama: true, Provider: provider.LlamaCPPProviderID,
+		SaveLlama: true, Provider: d.provider,
 		LlamaURL: d.llamaURL, LlamaAPIKey: value,
 	}
 }

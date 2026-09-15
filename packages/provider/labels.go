@@ -9,6 +9,8 @@ func ProviderLabel(id string) string {
 		return "Anthropic (Claude Pro/Max)"
 	case "openai":
 		return "OpenAI"
+	case LMStudioProviderID:
+		return "LM Studio"
 	case "openai-codex":
 		return "OpenAI Codex (ChatGPT Plus/Pro)"
 	case "openai-responses":
