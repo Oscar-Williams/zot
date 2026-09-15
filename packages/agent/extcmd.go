@@ -547,13 +547,52 @@ func extensionDirs() map[string]string {
 }
 
 func findExtensionDir(name string) (string, error) {
+	// Scan installed entries rather than joining user input onto a root.
+	// Manifest names and directory names are both accepted, but neither
+	// takes precedence when they identify different installations.
+	matches := map[string]bool{}
 	for _, dir := range extensionDirs() {
-		candidate := filepath.Join(dir, name)
-		if _, err := os.Stat(filepath.Join(candidate, "extension.json")); err == nil {
-			return candidate, nil
+		entries, err := os.ReadDir(dir)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("read extensions directory %s: %w", dir, err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			candidate := filepath.Join(dir, entry.Name())
+			raw, err := os.ReadFile(filepath.Join(candidate, "extension.json"))
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return "", fmt.Errorf("read extension manifest in %s: %w", candidate, err)
+			}
+			var manifest struct {
+				Name string `json:"name"`
+			}
+			manifestMatch := json.Unmarshal(raw, &manifest) == nil && manifest.Name != "" && manifest.Name == name
+			if entry.Name() == name || manifestMatch {
+				matches[candidate] = true
+			}
 		}
 	}
-	return "", fmt.Errorf("extension %q not found", name)
+	paths := make([]string, 0, len(matches))
+	for path := range matches {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	switch len(paths) {
+	case 0:
+		return "", fmt.Errorf("extension %q not found", name)
+	case 1:
+		return paths[0], nil
+	default:
+		return "", fmt.Errorf("extension %q is ambiguous, matches: %s", name, strings.Join(paths, ", "))
+	}
 }
 
 func dashIfEmpty(s string) string {

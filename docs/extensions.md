@@ -813,6 +813,15 @@ zot ext disable <name>          disable without removing
 zot ext logs <name> [-f]        cat / tail the extension's stderr
 ```
 
+`remove`, `enable`, and `disable` accept the manifest name shown by
+`zot ext list` or the installed directory name. For example, an extension
+named `todo` installed in `zot-todo/` can be removed with either name.
+Both global and project-local installations are searched. If a name matches
+multiple installations (including a manifest name matching another directory
+name), the command reports the matching paths and makes no changes. Use a
+unique directory name to disambiguate where possible. `logs` uses the
+manifest name.
+
 `zot ext doctor` runs the same discovery path as zot startup, but reports
 what happened instead of changing the fail-soft runtime behavior. It shows
 manifest errors, disabled or shadowed extensions, subprocess load errors,
