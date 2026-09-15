@@ -822,6 +822,16 @@ name), the command reports the matching paths and makes no changes. Use a
 unique directory name to disambiguate where possible. `logs` uses the
 manifest name.
 
+`remove` deletes the installation directory, including state stored inside
+it. It does not stop extensions in other running zot sessions. Close those
+sessions before uninstalling, otherwise an extension may recreate its state
+directory when saving or shutting down. Normal startup ignores directories
+without `extension.json`, including state-only leftovers. It does not delete
+that leftover data. Explicit `--ext` paths still report missing manifests,
+and malformed or unreadable manifests still produce errors. After closing
+active sessions, inspect and manually remove any leftover state directory
+if needed. `ext remove` requires an installation with a manifest.
+
 `zot ext doctor` runs the same discovery path as zot startup, but reports
 what happened instead of changing the fail-soft runtime behavior. It shows
 manifest errors, disabled or shadowed extensions, subprocess load errors,

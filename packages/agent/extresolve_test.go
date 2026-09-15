@@ -38,6 +38,9 @@ func TestFindExtensionDir(t *testing.T) {
 			if err := extToggle([]string{"todo"}, true); err != nil {
 				t.Fatal(err)
 			}
+			if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			if err := extRemove([]string{"todo", "--yes"}); err != nil {
 				t.Fatal(err)
 			}

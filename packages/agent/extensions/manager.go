@@ -223,6 +223,13 @@ func (m *Manager) Discover(ctx context.Context) []error {
 			continue // missing directory is fine
 		}
 		for _, extDir := range extDirs {
+			// A running extension can recreate its state directory after
+			// uninstall. Ignore directories without a manifest before they
+			// can shadow a valid installation in a lower-priority root.
+			// Other errors still go through loadOne for diagnostics.
+			if _, err := os.Stat(filepath.Join(extDir, "extension.json")); os.IsNotExist(err) {
+				continue
+			}
 			name := filepath.Base(extDir)
 			if seenDirs[name] {
 				continue // higher-priority location already queued
