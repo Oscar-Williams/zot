@@ -1839,6 +1839,7 @@ func snapViewportStartToImageBlock(chat []string, start int) int {
 const (
 	hiddenOpenAIImageMirrorPrefix = "Tool output included the following image content:"
 	shellEscapeMetaKey            = "shell_escape"
+	shellEscapeCommandMetaKey     = "shell_escape_command"
 )
 
 func filterHiddenTranscriptMessages(msgs []provider.Message) []provider.Message {
@@ -2935,10 +2936,19 @@ func (i *Interactive) inputHistory() []string {
 	msgs := i.agent.Messages()
 	hist := make([]string, 0, len(msgs))
 	for _, m := range msgs {
-		if m.Role != provider.RoleUser || isHiddenTranscriptMessage(m) || m.Meta[shellEscapeMetaKey] == "true" {
+		if m.Role != provider.RoleUser || isHiddenTranscriptMessage(m) {
 			continue
 		}
 		text := userMessageText(m)
+		if m.Meta[shellEscapeMetaKey] == "true" {
+			// Older sessions lack command metadata. Never recall shell output
+			// as input or try to recover a command from the terminal log.
+			cmd := m.Meta[shellEscapeCommandMetaKey]
+			if strings.TrimSpace(cmd) == "" {
+				continue
+			}
+			text = "!" + cmd
+		}
 		if strings.TrimSpace(text) == "" {
 			continue
 		}
@@ -5830,7 +5840,10 @@ func (i *Interactive) startShellEscape(parent context.Context, cmd string) {
 		}
 
 		if i.agent != nil {
-			i.agent.AppendUserContext(out, map[string]string{shellEscapeMetaKey: "true"})
+			i.agent.AppendUserContext(out, map[string]string{
+				shellEscapeMetaKey:        "true",
+				shellEscapeCommandMetaKey: cmd,
+			})
 		}
 
 		i.mu.Lock()

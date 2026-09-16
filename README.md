@@ -332,6 +332,8 @@ Extension-registered commands appear under a divider at the bottom of the popup,
 
 Type `!` followed by a command to run it directly without going through the model. Everything after the `!` is passed to the same shell the `bash` tool uses (`/bin/bash -c` when available on Unix, then `bash -c` from `PATH`, with POSIX `/bin/sh -c` as a fallback; `cmd /C` on Windows), runs in the session working directory, and honors the `/jail` sandbox. The command, merged output, and exit status are appended to the transcript as user context, so the model can use them on the next turn. Running the command does not itself start a model turn. A running `!command` shares the busy state with the agent: `esc` cancels it, and you cannot start one while a turn (or another shell escape) is in flight.
 
+After a shell command finishes, `up` / `down` input history recalls it with the leading `!`, without its output or exit status. This also works when resuming sessions saved with command metadata. Shell commands from older sessions without that metadata remain excluded from input history.
+
 ### `/sessions`
 
 Shows previous sessions for the current working directory, newest first, with timestamp, model, message count, cost, and the first user prompt. Pick one with `up`/`down`, `enter` to resume, `r` to rename, `d` to delete, or `esc` to cancel. Deletion requires confirmation and permanently removes the session file; the currently active session cannot be deleted. zot swaps the current session file for the selected one and replays the full transcript (including tool calls) into the agent. Sessions remember the model they ended on, so resuming picks up on that exact model even if your global default changed.

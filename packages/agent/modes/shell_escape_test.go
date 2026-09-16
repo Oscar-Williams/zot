@@ -34,6 +34,10 @@ func TestShellEscapeAddsOutputToAgentContext(t *testing.T) {
 			if messages[0].Meta[shellEscapeMetaKey] != "true" {
 				t.Fatalf("shell context metadata = %v", messages[0].Meta)
 			}
+			history := i.inputHistory()
+			if len(history) != 1 || history[0] != "!"+cmd {
+				t.Fatalf("input history = %q, want shell command with bang", history)
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

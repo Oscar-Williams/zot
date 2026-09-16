@@ -64,6 +64,35 @@ func TestInputHistorySkipsShellEscapeContext(t *testing.T) {
 	}
 }
 
+func TestInputHistoryRecallsShellCommandWithBang(t *testing.T) {
+	for _, cmd := range []string{"pwd", "printf 'first\\n'\nprintf 'second\\n'"} {
+		t.Run(cmd, func(t *testing.T) {
+			ag := core.NewAgent(nil, "", "", nil)
+			ag.SetMessages([]provider.Message{
+				{Role: provider.RoleUser, Content: []provider.Content{provider.TextBlock{Text: "prompt"}}},
+				{Role: provider.RoleUser, Content: []provider.Content{provider.TextBlock{Text: "$ " + cmd + "\n\noutput\n\n[exit 0]"}}, Meta: map[string]string{"shell_escape": "true", "shell_escape_command": cmd}},
+			})
+			i := &Interactive{agent: ag, ed: tui.NewEditor(""), inputHistoryIndex: -1}
+			for _, step := range []struct {
+				key  tui.KeyKind
+				want string
+			}{
+				{tui.KeyUp, "!" + cmd},
+				{tui.KeyUp, "prompt"},
+				{tui.KeyDown, "!" + cmd},
+				{tui.KeyDown, ""},
+			} {
+				if !i.handleInputHistoryKey(tui.Key{Kind: step.key}) {
+					t.Fatal("expected history navigation")
+				}
+				if got := i.ed.Value(); got != step.want {
+					t.Fatalf("editor = %q, want %q", got, step.want)
+				}
+			}
+		})
+	}
+}
+
 func TestInputHistoryNoLongerUsesLeftRight(t *testing.T) {
 	ag := core.NewAgent(nil, "", "", nil)
 	ag.SetMessages([]provider.Message{
