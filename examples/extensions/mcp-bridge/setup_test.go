@@ -87,6 +87,38 @@ func TestHandleSetupAddYouGlobal(t *testing.T) {
 	}
 }
 
+func TestHandleSetupAddSerplyGlobal(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("ZOT_HOME", tmp)
+
+	out, err := handleSetup([]string{"add", "serply"}, tmp)
+	if err != nil {
+		t.Fatalf("handleSetup add serply: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected setup output")
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, "mcp.json"))
+	if err != nil {
+		t.Fatalf("read mcp.json: %v", err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse mcp.json: %v", err)
+	}
+	serply := cfg.MCPServers["serply"]
+	if serply.Transport != "streamable-http" || serply.URL != "https://api.serply.io/mcp" {
+		t.Fatalf("unexpected serply config: %+v", serply)
+	}
+	// The keyed template must reference the key by variable so the written
+	// config carries no secret. expandServerEnv resolves it at load time, and
+	// drops the server entirely when SERPLY_API_KEY is unset.
+	if got := serply.Headers["X-Api-Key"]; got != "${SERPLY_API_KEY}" {
+		t.Fatalf("api key must stay an unexpanded variable reference, got %q", got)
+	}
+}
+
 func TestHandleSetupDuplicate(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("ZOT_HOME", tmp)

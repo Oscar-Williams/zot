@@ -72,6 +72,17 @@ func setupTemplates() map[string]serverTemplate {
 				}
 			},
 		},
+		"serply": {
+			Name:        "serply",
+			Description: "Google-backed search via the Serply MCP server: web, news, and scholar results with citation counts, plus maps, jobs, video, Bing, Amazon products, Reddit, and URL scraping. Requires a SERPLY_API_KEY.",
+			Config: func(cwd string) ServerConfig {
+				return ServerConfig{
+					Transport: "streamable-http",
+					URL:       "https://api.serply.io/mcp",
+					Headers:   map[string]string{"X-Api-Key": "${SERPLY_API_KEY}"},
+				}
+			},
+		},
 	}
 }
 
