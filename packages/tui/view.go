@@ -2454,7 +2454,12 @@ func truncateLines(s string, n int) string {
 // shows the full summary text.
 func (v *View) renderCompactionBlock(m provider.Message, width int) []string {
 	th := v.Theme
-	const indent = "    "
+	indent := "    "
+	// Leave room for a wide Unicode character on very narrow terminals.
+	if width < len(indent)+2 {
+		indent = ""
+	}
+	inner := max(1, width-len(indent))
 
 	tokens := m.Meta["tokens_before"]
 	if tokens == "" {
@@ -2464,7 +2469,9 @@ func (v *View) renderCompactionBlock(m provider.Message, width int) []string {
 	if v.ExpandAll {
 		var lines []string
 		header := th.FG256(th.Muted, fmt.Sprintf("compacted from ~%s tokens", tokens))
-		lines = append(lines, indent+header)
+		for _, line := range wrapANSILine(header, inner) {
+			lines = append(lines, indent+line)
+		}
 		lines = append(lines, "")
 		for _, c := range m.Content {
 			if tb, ok := c.(provider.TextBlock); ok {
@@ -2472,12 +2479,14 @@ func (v *View) renderCompactionBlock(m provider.Message, width int) []string {
 				if idx := strings.Index(text, "\n\n"); idx >= 0 && strings.HasPrefix(text, "## Context Summary") {
 					text = text[idx+2:]
 				}
-				md := RenderMarkdown(text, th, width-4)
+				md := RenderMarkdown(text, th, inner)
 				for _, l := range strings.Split(md, "\n") {
 					if len(l) > 0 && l[0] == FlushLeftSentinel {
 						l = l[1:]
 					}
-					lines = append(lines, indent+l)
+					for _, line := range wrapANSILine(l, inner) {
+						lines = append(lines, indent+line)
+					}
 				}
 			}
 		}

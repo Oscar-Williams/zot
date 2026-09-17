@@ -450,7 +450,7 @@ Opens a picker listing every discovered SKILL.md file, built-ins hidden. Each ro
 
 ### `/compact`
 
-Sends the current transcript through the model with a structured summarization prompt. The returned summary replaces the transcript as one synthetic user message, with the last few exchanges kept verbatim for continuity. The status bar's context meter resets. Use it when the context meter creeps past ~80%.
+Sends the current transcript through the model with a structured summarization prompt. The returned summary replaces the transcript as one synthetic user message, with the last few exchanges kept verbatim for continuity. The status bar's context meter resets. Use it when the context meter creeps past ~80%. Press `ctrl+o` to expand the summary. Expanded text wraps to the current terminal width, including after resizing.
 
 zot also auto-compacts in the background: after any turn that reaches the configured context threshold, the agent kicks off a condense pass on its own. Choose `off`, `70%`, `80%`, `85%` (default), or `90%` under `/settings` → **auto-compact threshold**. You'll see `condensing history, esc to cancel` above the status bar and an `(auto)` tag next to the context percentage; `esc` aborts it without touching the transcript. Turning the percentage trigger off does not disable automatic compaction and retry after a context-window or payload-too-large response.
 
