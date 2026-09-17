@@ -140,6 +140,9 @@ func DiscoverSources(sources []Source, includeBuiltins bool) ([]*Skill, []error)
 		errs = append(errs, scanErrs...)
 		for _, s := range found {
 			if prior, dup := seen[s.Name]; dup {
+				if sameSkillFile(prior.Path, s.Path) {
+					continue
+				}
 				errs = append(errs, fmt.Errorf("skill %q shadowed: selected %s; ignored %s", s.Name, prior.Path, s.Path))
 				continue
 			}
@@ -161,6 +164,17 @@ func DiscoverSources(sources []Source, includeBuiltins bool) ([]*Skill, []error)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, errs
+}
+
+// sameSkillFile distinguishes repeated discovery from a genuine name conflict.
+// Stat follows symlinks, and SameFile also handles filesystem path aliases.
+func sameSkillFile(a, b string) bool {
+	if a == b {
+		return true
+	}
+	aInfo, aErr := os.Stat(a)
+	bInfo, bErr := os.Stat(b)
+	return aErr == nil && bErr == nil && os.SameFile(aInfo, bInfo)
 }
 
 func scanSource(source Source) ([]*Skill, []error) {

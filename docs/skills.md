@@ -71,8 +71,11 @@ Only files named exactly `SKILL.md` are read.
 
 Extensions namespace their skills, for example `git-tools:writing-git-commits`.
 Explicit `--ext` bundles take precedence over environment, project, global, and
-compatibility sources. Duplicate names keep the higher-precedence file and
-report a diagnostic. `--no-ext` omits implicit extension bundles;
+compatibility sources. Duplicate names from different files keep the
+higher-precedence file and report a diagnostic. Rediscovering the same file
+under the same skill name (including through a symlink) is silently ignored.
+This includes overlapping project and global locations when running from your
+home directory. `--no-ext` omits implicit extension bundles;
 `--no-ext --ext PATH` loads only the explicitly named bundle. `--no-skill`
 disables all skills, including extension and built-in skills.
 

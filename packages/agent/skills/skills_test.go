@@ -169,6 +169,66 @@ func TestDiscoverSourcesRecursiveAndPrefixed(t *testing.T) {
 	}
 }
 
+func TestDiscoverSourcesHomeDirectoryOverlap(t *testing.T) {
+	t.Setenv("ZOT_AGENT_SKILLS", "")
+	home := t.TempDir()
+	for _, compat := range []string{".agents", ".claude"} {
+		dir := filepath.Join(home, compat, "skills", "review")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+compat[1:]+"-review\n---\nbody"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, errs := DiscoverSources(SearchSources(t.TempDir(), home, home), false)
+	if len(got) != 2 || len(errs) != 0 {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+	for _, s := range got {
+		if !strings.HasPrefix(s.Source, "project") {
+			t.Errorf("source = %q, want project precedence", s.Source)
+		}
+	}
+}
+
+func TestDiscoverSourcesSameFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "SKILL.md")
+	if err := os.WriteFile(path, []byte("---\nname: review\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, second := range []string{root, path} {
+		got, errs := DiscoverSources([]Source{{Root: root, Label: "first"}, {Root: second, Label: "second"}}, false)
+		if len(got) != 1 || len(errs) != 0 || got[0].Source != "first" {
+			t.Fatalf("second=%q skills=%#v errs=%v", second, got, errs)
+		}
+	}
+	got, errs := DiscoverSources([]Source{{Root: root, Prefix: "one:"}, {Root: root, Prefix: "two:"}}, false)
+	if len(got) != 2 || len(errs) != 0 || got[0].Name != "one:review" || got[1].Name != "two:review" {
+		t.Fatalf("namespaced skills=%#v errs=%v", got, errs)
+	}
+}
+
+func TestDiscoverSourcesSameFileSymlink(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "SKILL.md")
+	if err := os.WriteFile(path, []byte("---\nname: review\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "SKILL.md")
+	if err := os.Symlink(path, alias); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	got, errs := DiscoverSources([]Source{{Root: root, Label: "first"}, {Root: alias}}, false)
+	if len(got) != 1 || len(errs) != 0 || got[0].Source != "first" {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+}
+
 func TestDiscoverSourcesDuplicateDiagnostic(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
 	for _, root := range []string{a, b} {
