@@ -287,9 +287,12 @@ is the first one that writes a `headers` entry:
 }
 ```
 
-The template writes the variable reference, not the key, so `mcp.json` holds no
-secret and stays safe to commit or sync. The bridge expands it from its own
-environment at load time (see [Environment variables](#environment-variables));
+The template writes the variable reference, not the key, so this entry holds no
+secret. The file around it is a separate question: another server can hold a
+literal credential, the way the You.com example above writes one inline, so
+treat `mcp.json` as safe to commit or sync only when every entry in it uses a
+variable reference. The bridge expands the reference from its own environment
+at load time (see [Environment variables](#environment-variables));
 with `SERPLY_API_KEY` unset, this server is disabled and reported by name while
 every other server keeps working. Get a key at
 [serply.io](https://serply.io); the API reference is at
