@@ -168,3 +168,41 @@ func TestLoadUserModelsWarnsOnUnknownAPI(t *testing.T) {
 		t.Fatalf("api = %q, want openai", cfg.API)
 	}
 }
+
+func TestLoadUserModelsDiscoverFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "models.json")
+	if err := os.WriteFile(path, []byte(`{
+		"providers": {
+			"m4": {
+				"baseUrl": "http://127.0.0.1:48000/v1",
+				"discover": true
+			},
+			"m5": {
+				"baseUrl": "http://127.0.0.1:48001/v1",
+				"models": [{"id": "pinned"}]
+			},
+			"no-base": {
+				"discover": true,
+				"models": [{"id": "m1", "baseUrl": "http://127.0.0.1:48002/v1"}]
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warnings := LoadUserModelsWithWarnings(path)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `"no-base"`) || !strings.Contains(warnings[0], "discover") {
+		t.Fatalf("warnings = %v, want one discover warning for no-base", warnings)
+	}
+	cps := CustomProviders()
+	if !cps["m4"].Discover {
+		t.Fatal("m4 discovery not enabled")
+	}
+	if cps["m5"].Discover {
+		t.Fatal("m5 discovery enabled without flag")
+	}
+	if cfg, ok := cps["no-base"]; !ok || cfg.Discover {
+		t.Fatalf("no-base = %+v, %v; want registered without discovery", cfg, ok)
+	}
+}

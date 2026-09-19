@@ -584,6 +584,23 @@ The provider IDs in `models.json` and `auth.json` must match. Then select the cu
 zot --provider my-company --model company-llm-v2
 ```
 
+##### Live model discovery for custom providers
+
+Set `"discover": true` on a custom provider to list its models from the OpenAI-compatible `/models` endpoint instead of, or in addition to, a static `models` array. Discovery is off by default and requires a provider-level `baseUrl`.
+
+```json
+{
+  "providers": {
+    "m4": {
+      "baseUrl": "http://127.0.0.1:48000/v1",
+      "discover": true
+    }
+  }
+}
+```
+
+zot queries `<baseUrl>/models` (or `<baseUrl>/v1/models` when the base has no version segment) with a 3 second timeout: in the background at startup, when `/model` opens, and when launching with a discovered model that is not yet in the catalog. The stored or environment API key is sent as a bearer token when present; a missing key is not an error. Discovered IDs get a conservative 32K context and 4K output default, and IDs containing `embed` are skipped. Entries in the provider's `models` array override discovered metadata for the same ID. The list stays in memory only, failed refreshes keep the previous snapshot, and `/model` reports the error. Background refresh never executes `api_key_command`.
+
 ### Kimi Code
 
 zot has built-in Kimi support through the Kimi Coding endpoint and Moonshot's OpenAI-compatible chat API.

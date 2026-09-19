@@ -446,6 +446,13 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 		// Restore transient metadata when resuming a local model after restart.
 		_ = RefreshLMStudioModels(context.Background())
 	}
+	if isDiscoverableCustomProvider(provName) {
+		if _, err := provider.FindModel(provName, model); err != nil {
+			// Same restore for discovery-enabled custom providers. Skipped
+			// when the model is already known to avoid a probe per launch.
+			_ = RefreshCustomProviderModels(context.Background())
+		}
+	}
 	resolvedModel, err := provider.FindModel(provName, model)
 	if err != nil && (provName == "ollama" || provName == provider.LlamaCPPProviderID || provName == provider.LMStudioProviderID) {
 		// Local providers are intentionally open-catalogue: any model id the
@@ -538,7 +545,10 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 		}
 	}
 
-	explicitBaseURL := args.BaseURL != "" || (resolvedModel.Source == "user" && resolvedModel.BaseURL != "")
+	// Discovered custom-provider models inherit the user's models.json
+	// endpoint, so they count as explicit for --insecure scoping too.
+	discoveredCustom := resolvedModel.Source == "live" && isDiscoverableCustomProvider(provName)
+	explicitBaseURL := args.BaseURL != "" || ((resolvedModel.Source == "user" || discoveredCustom) && resolvedModel.BaseURL != "")
 
 	// If the model defines a base URL (e.g. local ollama) and the
 	// user didn't pass --base-url, use the model's URL. For ollama,

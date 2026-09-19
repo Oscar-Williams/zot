@@ -187,6 +187,12 @@ type InteractiveConfig struct {
 	RefreshLMStudioModels func(context.Context) error
 	LMStudioConfigured    func() bool
 
+	// RefreshCustomProviderModels lists models from models.json providers
+	// that enabled discovery. CustomDiscoveryConfigured gates the refresh
+	// so /model opens immediately when nothing opted in.
+	RefreshCustomProviderModels func(context.Context) error
+	CustomDiscoveryConfigured   func() bool
+
 	// BuildAgent is called after a successful login to (re)construct the
 	// agent with the fresh credential. It returns the new agent and
 	// the concrete provider/model in use.
@@ -4551,7 +4557,7 @@ func (i *Interactive) runSlash(ctx context.Context, cmd string) (done bool) {
 	case "/model":
 		if len(parts) >= 2 {
 			i.applyModelSelection("", parts[1])
-		} else if (i.llamaConfigured && i.cfg.RefreshLlamaCPPModels != nil) || (i.cfg.LMStudioConfigured != nil && i.cfg.LMStudioConfigured() && i.cfg.RefreshLMStudioModels != nil) {
+		} else if i.modelRefreshNeeded() {
 			i.mu.Lock()
 			i.statusOK = "refreshing models"
 			i.statusErr = ""
@@ -4569,6 +4575,11 @@ func (i *Interactive) runSlash(ctx context.Context, cmd string) (done bool) {
 				if i.cfg.RefreshLlamaCPPModels != nil {
 					if llamaErr := refresh(i.cfg.RefreshLlamaCPPModels); err == nil {
 						err = llamaErr
+					}
+				}
+				if i.cfg.RefreshCustomProviderModels != nil && i.cfg.CustomDiscoveryConfigured != nil && i.cfg.CustomDiscoveryConfigured() {
+					if customErr := refresh(i.cfg.RefreshCustomProviderModels); err == nil {
+						err = customErr
 					}
 				}
 				select {
@@ -4753,6 +4764,18 @@ func (i *Interactive) runSlash(ctx context.Context, cmd string) (done bool) {
 	return false
 }
 
+// modelRefreshNeeded reports whether /model must synchronize transient
+// local catalogs before the picker opens.
+func (i *Interactive) modelRefreshNeeded() bool {
+	if i.llamaConfigured && i.cfg.RefreshLlamaCPPModels != nil {
+		return true
+	}
+	if i.cfg.LMStudioConfigured != nil && i.cfg.LMStudioConfigured() && i.cfg.RefreshLMStudioModels != nil {
+		return true
+	}
+	return i.cfg.CustomDiscoveryConfigured != nil && i.cfg.CustomDiscoveryConfigured() && i.cfg.RefreshCustomProviderModels != nil
+}
+
 func (i *Interactive) openModelPickerAfterRefresh(refreshErr error) {
 	var loggedIn []string
 	if i.cfg.LoggedInProviders != nil {
@@ -4761,7 +4784,7 @@ func (i *Interactive) openModelPickerAfterRefresh(refreshErr error) {
 	i.modelDialog.Open(i.cfg.Model, loggedIn, i.cfg.Reasoning)
 	i.mu.Lock()
 	if refreshErr != nil {
-		i.statusErr = "llama.cpp model refresh: " + refreshErr.Error()
+		i.statusErr = "model refresh: " + refreshErr.Error()
 		i.statusOK = ""
 	} else if i.statusOK == "refreshing models" {
 		i.statusOK = ""

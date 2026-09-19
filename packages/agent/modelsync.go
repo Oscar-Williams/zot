@@ -105,10 +105,11 @@ func ValidateAndRepairConfig() {
 			// Gateway providers can serve routed model ids like
 			// "deepseek/deepseek-v4-flash" even when the local catalog does not
 			// know them. Preserve only routed ids; plain typos are still repaired.
-			if cfg.Provider == provider.LMStudioProviderID || (isGatewayProvider(cfg.Provider) && isGatewayRoutedModelID(cfg.Model)) {
+			if cfg.Provider == provider.LMStudioProviderID || isDiscoverableCustomProvider(cfg.Provider) || (isGatewayProvider(cfg.Provider) && isGatewayRoutedModelID(cfg.Model)) {
 				// Local discovery is transient. Preserve the selected LM Studio
-				// ID even if another provider has an identically named model.
-				// Routed gateway IDs are also valid without a catalog entry.
+				// or discovery-enabled custom provider ID even if another
+				// provider has an identically named model. Routed gateway IDs
+				// are also valid without a catalog entry.
 			} else if m, err := provider.FindModel("", cfg.Model); err == nil {
 				fix := defaultModelForProvider(cfg.Provider)
 				fmt.Fprintf(os.Stderr,
@@ -153,6 +154,11 @@ func RefreshModelsAsync() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = refreshLlamaCPPModels(ctx, apiKeyCommandSkip)
+	}()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = refreshCustomProviderModels(ctx, apiKeyCommandSkip)
 	}()
 }
 

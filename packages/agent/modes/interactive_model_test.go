@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patriceckhart/zot/packages/core"
 	"github.com/patriceckhart/zot/packages/tui"
@@ -137,5 +138,57 @@ func TestModelPickerSkipsLlamaRefreshWhenRouterIsNotConfigured(t *testing.T) {
 	}
 	if i.statusOK == "refreshing models" {
 		t.Fatal("refresh status shown without llama.cpp router configuration")
+	}
+}
+
+func TestModelPickerRefreshesDiscoverableCustomProviders(t *testing.T) {
+	refreshed := make(chan struct{}, 1)
+	i := &Interactive{
+		cfg: InteractiveConfig{
+			CustomDiscoveryConfigured: func() bool { return true },
+			RefreshCustomProviderModels: func(context.Context) error {
+				refreshed <- struct{}{}
+				return nil
+			},
+		},
+		modelRefresh: make(chan modelRefreshResult, 1),
+		modelDialog:  newModelDialog(),
+	}
+
+	i.runSlash(context.Background(), "/model")
+
+	if i.modelDialog.Active() {
+		t.Fatal("model picker opened before the custom provider refresh finished")
+	}
+	if i.statusOK != "refreshing models" {
+		t.Fatalf("status = %q", i.statusOK)
+	}
+	select {
+	case <-refreshed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("custom provider refresh was not invoked")
+	}
+	select {
+	case result := <-i.modelRefresh:
+		i.openModelPickerAfterRefresh(result.err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh result never delivered")
+	}
+	if !i.modelDialog.Active() {
+		t.Fatal("model picker did not open after refresh")
+	}
+
+	// Without opt-in, the picker opens immediately even when the hook exists.
+	i = &Interactive{
+		cfg: InteractiveConfig{
+			CustomDiscoveryConfigured:   func() bool { return false },
+			RefreshCustomProviderModels: func(context.Context) error { t.Error("unexpected refresh"); return nil },
+		},
+		modelRefresh: make(chan modelRefreshResult, 1),
+		modelDialog:  newModelDialog(),
+	}
+	i.runSlash(context.Background(), "/model")
+	if !i.modelDialog.Active() {
+		t.Fatal("model picker did not open immediately")
 	}
 }

@@ -1379,15 +1379,17 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 				refreshAgentToolsAndPrompt(args, sharedSandbox, extToolAdapter, current, injectSwarmSpawn)
 			}
 		},
-		AuthManager:                mgr,
-		LlamaCPPConfig:             ResolveLlamaCPPConfig,
-		RefreshLlamaCPPModels:      RefreshLlamaCPPModels,
-		RefreshLMStudioModels:      RefreshLMStudioModels,
-		LMStudioConfigured:         LMStudioConfigured,
-		BuildAgent:                 buildAgent,
-		SetKimiCLIFallbackDisabled: SetKimiCLIFallbackDisabled,
-		BuildAgentFor:              buildAgentFor,
-		BuildAgentForRescue:        buildAgentForRescue,
+		AuthManager:                 mgr,
+		LlamaCPPConfig:              ResolveLlamaCPPConfig,
+		RefreshLlamaCPPModels:       RefreshLlamaCPPModels,
+		RefreshLMStudioModels:       RefreshLMStudioModels,
+		LMStudioConfigured:          LMStudioConfigured,
+		RefreshCustomProviderModels: RefreshCustomProviderModels,
+		CustomDiscoveryConfigured:   CustomDiscoveryConfigured,
+		BuildAgent:                  buildAgent,
+		SetKimiCLIFallbackDisabled:  SetKimiCLIFallbackDisabled,
+		BuildAgentFor:               buildAgentFor,
+		BuildAgentForRescue:         buildAgentForRescue,
 		LoggedInProviders: func() []string {
 			var out []string
 			seen := map[string]bool{}

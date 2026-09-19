@@ -484,6 +484,59 @@ custom model directly:
 zot --provider my-company --model company-llm-v2
 ```
 
+### Live model discovery
+
+A custom provider can list its models from the OpenAI-compatible `/models`
+endpoint instead of, or in addition to, a static `models` array. Set
+`"discover": true` at the provider level. Discovery is off by default so
+existing configurations never gain network traffic, and it requires a
+provider-level `baseUrl`. A `discover` flag without one is ignored with a
+warning.
+
+```json
+{
+  "providers": {
+    "m4": {
+      "baseUrl": "http://127.0.0.1:48000/v1",
+      "discover": true
+    },
+    "m5": {
+      "baseUrl": "http://127.0.0.1:48001/v1",
+      "discover": true,
+      "models": [
+        { "id": "big-model", "contextWindow": 200000, "maxTokens": 16000 }
+      ]
+    }
+  }
+}
+```
+
+zot requests `<baseUrl>/models`, or `<baseUrl>/v1/models` when the base URL
+has no trailing version segment, with a 3 second timeout. It refreshes in the
+background on startup, when `/model` opens, and when launching with a
+discovered model that is not yet in the catalog. The API key from the
+environment or `auth.json` is sent as a bearer token when present. A missing key
+is not an error because local servers commonly accept unauthenticated requests.
+Background refresh never executes an `api_key_command`; opening `/model` does.
+
+Only model IDs are read from the response. Discovered models default to a
+32,768 token context and 4,096 output tokens, have zero pricing, and no
+reasoning controls. IDs containing `embed` are skipped. Entries in the
+provider's `models` array override discovered metadata for the same ID, which
+is how to raise limits or enable reasoning for a specific model.
+
+The discovered list stays in memory, separate from the six-hour cloud model
+cache. A failed refresh keeps the previous snapshot for that provider and
+`/model` shows the error while other providers stay usable. A persisted
+selection of a discovered model survives restarts even though the model is not
+in `models.json`. The `/models` wire format is assumed to be OpenAI style
+(`{"data": [{"id": ...}]}`) regardless of the provider's `api` setting.
+
+As with every custom provider, `/model` only lists it once a credential exists.
+For a keyless local server, store any placeholder value through `/login` or the
+derived environment variable. `--list-models` prints the catalog before the
+background refresh completes, so discovered models may be missing there.
+
 ## Credential resolution
 
 For each request, zot checks credentials in this order:

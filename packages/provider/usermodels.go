@@ -36,9 +36,13 @@ type UserModelsFile struct {
 
 // UserProvider groups models under a provider key.
 type UserProvider struct {
-	BaseURL string      `json:"baseUrl,omitempty"`
-	API     string      `json:"api,omitempty"` // "openai" (default), "openai-responses", or "anthropic"
-	Models  []UserModel `json:"models"`
+	BaseURL string `json:"baseUrl,omitempty"`
+	API     string `json:"api,omitempty"` // "openai" (default), "openai-responses", or "anthropic"
+	// Discover enables live model listing from the provider-level
+	// baseUrl's /models endpoint. Off by default so existing custom
+	// providers never gain unexpected network traffic.
+	Discover bool        `json:"discover,omitempty"`
+	Models   []UserModel `json:"models"`
 }
 
 // CustomProviderConfig holds runtime config for a user-defined provider
@@ -46,6 +50,9 @@ type UserProvider struct {
 type CustomProviderConfig struct {
 	BaseURL string
 	API     string // "openai", "openai-responses", or "anthropic"
+	// Discover reports whether live model discovery is enabled. It is
+	// only true when a provider-level BaseURL is present.
+	Discover bool
 }
 
 var customProviders = map[string]CustomProviderConfig{}
@@ -158,6 +165,13 @@ func LoadUserModelsWithWarnings(path string) ([]Model, []string) {
 				break
 			}
 		}
+		// Discovery needs one endpoint to list from, so it is tied to the
+		// provider-level baseUrl rather than per-model overrides.
+		discover := prov.Discover
+		if discover && strings.TrimSpace(prov.BaseURL) == "" {
+			warnings = append(warnings, fmt.Sprintf("models.json: provider %q sets discover without a provider-level baseUrl; discovery disabled", providerName))
+			discover = false
+		}
 		if prov.BaseURL != "" || prov.API != "" || hasModelBaseURL {
 			api := strings.ToLower(strings.TrimSpace(prov.API))
 			if api == "" {
@@ -176,8 +190,9 @@ func LoadUserModelsWithWarnings(path string) ([]Model, []string) {
 				api = "openai"
 			}
 			customProviders[normalized] = CustomProviderConfig{
-				BaseURL: prov.BaseURL,
-				API:     api,
+				BaseURL:  prov.BaseURL,
+				API:      api,
+				Discover: discover,
 			}
 		}
 
