@@ -36,7 +36,7 @@ var helpKeyRows = [][2]string{
 // section it lives in. The width is computed from the longest label
 // across BOTH lists, with a minimum of 14 cells so changes to either
 // list don't compress the column visually.
-func renderHelpBlock(th tui.Theme, width int, llamaConfigured bool) []string {
+func renderHelpBlock(th tui.Theme, width int, llamaConfigured bool, keymap []keymapBinding) []string {
 	if width < 20 {
 		width = 20
 	}
@@ -59,6 +59,11 @@ func renderHelpBlock(th tui.Theme, width int, llamaConfigured bool) []string {
 	}
 	for _, k := range helpKeyRows {
 		if n := runewidth.StringWidth(k[0]); n > labelWidth {
+			labelWidth = n
+		}
+	}
+	for _, b := range keymap {
+		if n := runewidth.StringWidth(b.name); n > labelWidth {
 			labelWidth = n
 		}
 	}
@@ -91,6 +96,15 @@ func renderHelpBlock(th tui.Theme, width int, llamaConfigured bool) []string {
 		out = append(out, fmt.Sprintf("  %s  %s",
 			th.FG256(th.Accent, pad(k[0])),
 			th.FG256(th.Muted, k[1])))
+	}
+
+	if len(keymap) > 0 {
+		out = append(out, "", tui.Bold("custom keys:"))
+		for _, b := range keymap {
+			out = append(out, fmt.Sprintf("  %s  %s",
+				th.FG256(th.Accent, pad(b.name)),
+				th.FG256(th.Muted, b.command)))
+		}
 	}
 
 	out = append(out, "", frameRule(th, width), "")

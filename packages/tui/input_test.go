@@ -51,6 +51,50 @@ func TestReaderParsesCSIUHyperNumberAsSuper(t *testing.T) {
 	}
 }
 
+func TestReaderParsesRawCtrlGAsModifiedRune(t *testing.T) {
+	k := readKey(t, "\x07")
+	if k.Kind != KeyRune || k.Rune != 'g' || !k.Ctrl {
+		t.Fatalf("Read kind=%v rune=%q ctrl=%v, want ctrl+g", k.Kind, k.Rune, k.Ctrl)
+	}
+}
+
+func TestReaderParsesRawCtrlSAsModifiedRune(t *testing.T) {
+	k := readKey(t, "\x13")
+	if k.Kind != KeyRune || k.Rune != 's' || !k.Ctrl {
+		t.Fatalf("Read kind=%v rune=%q ctrl=%v, want ctrl+s", k.Kind, k.Rune, k.Ctrl)
+	}
+}
+
+func TestReaderParsesRawCtrlBAsModifiedRune(t *testing.T) {
+	k := readKey(t, "\x02")
+	if k.Kind != KeyRune || k.Rune != 'b' || !k.Ctrl {
+		t.Fatalf("Read kind=%v rune=%q ctrl=%v, want ctrl+b", k.Kind, k.Rune, k.Ctrl)
+	}
+}
+
+func TestReaderKeepsDedicatedControlKinds(t *testing.T) {
+	for in, want := range map[string]KeyKind{
+		"\x01": KeyCtrlA, "\x03": KeyCtrlC, "\x04": KeyCtrlD, "\x05": KeyCtrlE,
+		"\x0b": KeyCtrlK, "\x0c": KeyCtrlL, "\x0f": KeyCtrlO, "\x15": KeyCtrlU,
+		"\x17": KeyCtrlW, "\x16": KeyPasteClipboard, "\t": KeyTab, "\r": KeyEnter, "\x08": KeyBackspace,
+	} {
+		if k := readKey(t, in); k.Kind != want {
+			t.Fatalf("Read(%q) kind=%v, want %v", in, k.Kind, want)
+		}
+	}
+}
+
+func TestReaderParsesCSIUCtrlLetterAsModifiedRune(t *testing.T) {
+	k := readKey(t, "\x1b[115;5u")
+	if k.Kind != KeyRune || k.Rune != 's' || !k.Ctrl || k.Shift {
+		t.Fatalf("Read = %+v, want ctrl+s", k)
+	}
+	k = readKey(t, "\x1b[71;6u")
+	if k.Kind != KeyRune || k.Rune != 'G' || !k.Ctrl || !k.Shift {
+		t.Fatalf("Read = %+v, want ctrl+shift+G", k)
+	}
+}
+
 func TestReaderParsesRawCtrlVAsClipboardPaste(t *testing.T) {
 	k := readKey(t, "\x16")
 	if k.Kind != KeyPasteClipboard || !k.Ctrl {

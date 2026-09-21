@@ -140,6 +140,10 @@ type InteractiveConfig struct {
 	// forwards Command/Super keypresses, but Ctrl is the displayed chord.
 	QuickModelShortcuts []QuickModelShortcut
 
+	// Keymap maps configured key chords to slash commands. It is copied from
+	// config.json by the CLI and is only active in the main interactive input.
+	Keymap map[string]string
+
 	// ExtensionThemes returns themes bundled with loaded extensions.
 	ExtensionThemes func() []tui.ThemeOption
 
@@ -576,6 +580,10 @@ type Interactive struct {
 	// stay in the scrolling chat until /clear without entering the transcript.
 	reloadErrors []string
 
+	// keymap holds the compiled config.json keymap bindings, sorted by
+	// chord name. Invalid entries are reported through reloadErrors.
+	keymap []keymapBinding
+
 	// shellRunning is true while a !command is executing. It shares
 	// i.busy/i.cancelTurn so esc cancels it and no turn or other shell
 	// escape can start while one is in flight.
@@ -694,6 +702,9 @@ func NewInteractive(cfg InteractiveConfig) *Interactive {
 		inputHistoryIndex: -1,
 		reloadErrors:      append([]string(nil), cfg.StartupExtensionErrors...),
 	}
+	var keymapIssues []string
+	i.keymap, keymapIssues = compileKeymap(cfg.Keymap)
+	i.reloadErrors = append(i.reloadErrors, keymapIssues...)
 	i.fileSuggest.SetRecursive(cfg.RecursiveFileSuggest != nil && *cfg.RecursiveFileSuggest)
 	i.suggest.SetFuzzySkills(cfg.FuzzySkillSuggest != nil && *cfg.FuzzySkillSuggest)
 	i.fileSuggest.SetRespectGitignore(cfg.RespectGitignore == nil || *cfg.RespectGitignore)
@@ -2101,6 +2112,29 @@ func (i *Interactive) confirmChildActive() bool {
 		i.extPanel.Active()
 }
 
+// dialogOwnsInput reports whether a dialog, panel, or focused
+// confirmation prompt currently consumes keys instead of the main editor.
+func (i *Interactive) dialogOwnsInput() bool {
+	return i.confirmDialog.Focused() ||
+		i.dialog.Active() ||
+		i.modelDialog.Active() ||
+		i.llamaDialog.Active() ||
+		i.rescueDialog.Active() ||
+		i.sessionDialog.Active() ||
+		i.swarmDialog.Active() ||
+		i.jumpDialog.Active() ||
+		i.btwDialog.Active() ||
+		i.skillsDialog.Active() ||
+		i.changelogDialog.Active() ||
+		i.logoutDialog.Active() ||
+		i.telegramDialog.Active() ||
+		i.settingsDialog.Active() ||
+		i.sessionOpsDialog.Active() ||
+		i.sessionTreeDialog.Active() ||
+		i.timeline.Active() ||
+		i.extPanel.Active()
+}
+
 // restoreConfirmFocus returns input to confirmation after slash input is
 // cleared or a child interaction closes. A non-empty editor keeps command
 // input focused, and an active child continues to own its keys.
@@ -2138,6 +2172,14 @@ func (i *Interactive) handleKey(ctx context.Context, k tui.Key) (done bool) {
 			i.statusOK = ""
 			i.mu.Unlock()
 		}
+	}
+
+	// Ctrl and Super chords reach us as modified runes so the keymap can
+	// bind them on the main input. Dialogs key off bare letters ('r'
+	// renames, 'q' closes, digits answer confirmations) and must not see
+	// a chord as its letter, so neutralize it while one owns input.
+	if isChordRune(k) && i.dialogOwnsInput() {
+		k = tui.Key{Kind: tui.KeyUnknown}
 	}
 
 	// Any key that isn't ctrl+c invalidates an armed ctrl+c-exit, so
@@ -2446,6 +2488,22 @@ func (i *Interactive) handleKey(ctx context.Context, k tui.Key) (done bool) {
 		}
 		i.invalidate()
 		return false
+	}
+
+	// Configured shortcuts only apply to the main input. Every dialog
+	// above has already consumed its keys, and the confirmation prompt
+	// keeps focus until the user explicitly moves it with '/'.
+	if !keymapReservedKey(k) {
+		if command := lookupKeymap(i.keymap, k); command != "" {
+			parts := strings.Fields(command)
+			if len(parts) > 0 && slashCancelsTurn(parts[0]) {
+				i.cancelAndWaitForIdle()
+			}
+			i.ed.Clear()
+			i.suggest.Reset()
+			i.fileSuggest.Reset()
+			return i.runSlash(ctx, command)
+		}
 	}
 
 	if slot := quickModelShortcutSlot(k); slot > 0 {
@@ -4534,7 +4592,7 @@ func (i *Interactive) runSlash(ctx context.Context, cmd string) (done bool) {
 		i.mu.Unlock()
 	case "/help":
 		i.mu.Lock()
-		i.helpBlock = renderHelpBlock(i.cfg.Theme, i.lastCols(), i.llamaConfigured)
+		i.helpBlock = renderHelpBlock(i.cfg.Theme, i.lastCols(), i.llamaConfigured, i.keymap)
 		i.statusErr = ""
 		i.statusOK = ""
 		// Pin the viewport to the newest content so the help block,

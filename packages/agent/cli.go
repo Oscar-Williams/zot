@@ -1331,6 +1331,7 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 		OpenRouterServerToolCallLimit: initialCfg.OpenRouterServerToolCallLimit,
 		NoTools:                       args.NoTools,
 		QuickModelShortcuts:           quickModelShortcuts,
+		Keymap:                        initialCfg.Keymap,
 		RecursiveFileSuggest:          initialCfg.RecursiveFileSuggest,
 		FuzzySkillSuggest:             initialCfg.FuzzySkillSuggest,
 		RespectGitignore:              initialCfg.RespectGitignore,

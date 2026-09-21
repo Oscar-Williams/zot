@@ -129,6 +129,13 @@ func (e *Editor) HandleKey(k Key) (submit bool) {
 			e.newline()
 			return false
 		}
+		// Ctrl and Super chords are shortcuts, not typed text. The
+		// reader surfaces unbound ones (Ctrl+S, Cmd+K, ...) as runes so
+		// callers can match keymaps; anything that reaches the editor
+		// unmatched must be ignored rather than inserted.
+		if k.Ctrl || k.Super {
+			return false
+		}
 		e.insert(string(k.Rune))
 	case KeyEnter:
 		if k.Shift || k.Alt {
