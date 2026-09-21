@@ -19,10 +19,18 @@ func TestHelpShowsLlamaOnlyWhenConfigured(t *testing.T) {
 }
 
 func TestHelpShowsConfiguredCustomKeys(t *testing.T) {
-	help := strings.Join(renderHelpBlock(tui.Theme{}, 80, false, map[string]string{
-		"ctrl+s": "/skill:review",
-	}), "\n")
+	bindings, issues := compileKeymap(map[string]string{
+		"Ctrl+S": "/skill:review",
+		"bogus":  "/help",
+	})
+	if len(issues) != 1 {
+		t.Fatalf("compileKeymap issues = %v, want one for bogus", issues)
+	}
+	help := strings.Join(renderHelpBlock(tui.Theme{}, 80, false, bindings), "\n")
 	if !strings.Contains(help, "custom keys:") || !strings.Contains(help, "ctrl+s") || !strings.Contains(help, "/skill:review") {
 		t.Fatalf("help omitted configured custom key: %q", help)
+	}
+	if strings.Contains(help, "bogus") {
+		t.Fatalf("help advertised an invalid binding: %q", help)
 	}
 }

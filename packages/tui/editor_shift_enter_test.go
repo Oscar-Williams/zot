@@ -15,6 +15,23 @@ func TestEditorShiftEnterInsertsNewline(t *testing.T) {
 	}
 }
 
+func TestEditorIgnoresCtrlAndSuperRunes(t *testing.T) {
+	e := NewEditor("> ")
+	e.HandleKey(Key{Kind: KeyRune, Rune: 'a'})
+	for _, k := range []Key{
+		{Kind: KeyRune, Rune: 's', Ctrl: true},
+		{Kind: KeyRune, Rune: 'G', Ctrl: true, Shift: true},
+		{Kind: KeyRune, Rune: 'k', Super: true},
+	} {
+		if submit := e.HandleKey(k); submit {
+			t.Fatalf("%+v submitted", k)
+		}
+	}
+	if got, want := e.Value(), "a"; got != want {
+		t.Fatalf("Value() = %q, want %q (chords must not insert text)", got, want)
+	}
+}
+
 func TestEditorPlainEnterSubmits(t *testing.T) {
 	e := NewEditor("> ")
 	e.HandleKey(Key{Kind: KeyRune, Rune: 'a'})

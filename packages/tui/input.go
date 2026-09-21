@@ -94,22 +94,20 @@ func (r *Reader) Read() (Key, error) {
 		return Key{Kind: KeyCtrlO}, nil
 	case b == 0x16:
 		return Key{Kind: KeyPasteClipboard, Ctrl: true}, nil
-	case b == 0x07:
-		// Legacy terminals encode Ctrl+G as BEL. There is no separate
-		// encoding for Ctrl+Shift+G, so expose the control letter for
-		// keymap matching; callers that need the distinction require an
-		// enhanced keyboard protocol.
-		return Key{Kind: KeyRune, Rune: 'g', Ctrl: true}, nil
 	case b == '\r', b == '\n':
 		return Key{Kind: KeyEnter}, nil
 	case b == '\t':
 		return Key{Kind: KeyTab}, nil
 	case b == 0x7f, b == 0x08:
 		return Key{Kind: KeyBackspace}, nil
-	case b >= 0x10 && b <= 0x1a:
-		// Raw terminals encode Ctrl+Q..Ctrl+Z as control bytes. The
-		// commonly used bindings above have dedicated KeyKinds; expose
-		// the remaining letters as modified runes for keymaps.
+	case b >= 0x01 && b <= 0x1a:
+		// Legacy terminals encode Ctrl+A..Ctrl+Z as the control bytes
+		// 0x01..0x1a. The bindings above have dedicated KeyKinds; the
+		// remaining letters surface as Ctrl-modified runes so keymaps
+		// can bind them. Legacy encodings cannot carry Shift, so
+		// Ctrl+Shift+letter arrives identically; only enhanced keyboard
+		// protocols distinguish the two. Consumers must treat a Ctrl
+		// rune as a chord, never as typed text.
 		return Key{Kind: KeyRune, Rune: rune('a' + b - 1), Ctrl: true}, nil
 	case b == 0x1b:
 		return r.readEscape()

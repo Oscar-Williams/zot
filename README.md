@@ -164,7 +164,7 @@ The setting is applied at startup to both HTTP and HTTPS traffic. Existing `HTTP
 
 ### Configurable shortcuts
 
-Interactive keybindings can be added to `$ZOT_HOME/config.json` under `keymap`. Each key is a case-insensitive chord using `ctrl`, `alt`/`option`, `shift`, or `cmd`/`super`, and each value is a slash command. This works for built-in commands, extension commands, and explicitly invoked skills. Note: keybindings requiring indistinguishable control sequences - such as Ctrl+H (translates to Backspace) and many Ctrl+Shift+letter chords - require enhanced keyboard reporting and so currently may not be used in certain terminals.
+Interactive keybindings can be added to `$ZOT_HOME/config.json` under `keymap`. Each key is a case-insensitive chord made of at least one modifier (`ctrl`, `alt`/`option`, `shift`, `cmd`/`super`) plus a single character or a named key (`enter`, `tab`, `space`, `esc`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`). Each value is a slash command: built-in commands, extension commands, and explicitly invoked `/skill:<name>` all work.
 
 ```json
 {
@@ -177,9 +177,19 @@ Interactive keybindings can be added to `$ZOT_HOME/config.json` under `keymap`. 
 ```
 
 Shortcuts run in the main interactive input and use the same dispatch path as
-typing the command. Invalid key names are ignored; values must begin with
-`/`. The emergency `ctrl+c`, `ctrl+d`, and `esc` bindings remain reserved.
-Shortcuts do not apply while a dialog or extension panel has focus.
+typing the command. They do not apply while a dialog, extension panel, or
+tool confirmation has focus. Entries that cannot be bound are skipped and
+reported at startup (the message clears with `/clear`): unmodified keys such
+as `enter` or `g`, values that do not start with `/`, and the reserved
+`ctrl+c`, `ctrl+d`, and `esc` chords. `/help` lists the active bindings.
+
+Terminal limitations: without enhanced keyboard reporting (kitty keyboard
+protocol or xterm `modifyOtherKeys`), a terminal cannot distinguish
+`ctrl+h`, `ctrl+i`, and `ctrl+m` from Backspace, Tab, and Enter, and it does
+not report Shift on Ctrl+letter chords. zot therefore lets a `ctrl+shift+<letter>`
+binding also fire on plain `ctrl+<letter>` unless a separate `ctrl+<letter>`
+binding exists. Chords the terminal emulator or multiplexer consumes itself
+(a tmux prefix, `cmd+k` clearing scrollback, tab switching) never reach zot.
 
 ## Persistent instructions (AGENTS.md)
 
