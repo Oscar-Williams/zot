@@ -47,6 +47,10 @@ type Renderer struct {
 	logHardwareRow int
 	logInit        bool
 
+	// History uses a separate alternate-screen renderer so browsing does not
+	// overwrite the main screen or its native scrollback and diff state.
+	history *Renderer
+
 	// keepScrollback is true when we must NOT emit \x1b[3J
 	// (erase-in-display 3, "clear scrollback").
 	//
@@ -96,6 +100,9 @@ func NewRenderer(out io.Writer) *Renderer {
 // background affects every row, so cached frame state is invalidated.
 func (r *Renderer) SetTheme(th Theme) {
 	r.theme = th
+	if r.history != nil {
+		r.history.SetTheme(th)
+	}
 	r.Invalidate()
 }
 
@@ -112,6 +119,11 @@ func (r *Renderer) ResetScrollRegion() {
 }
 
 func (r *Renderer) Resize(cols, rows int) {
+	if r.history != nil && (cols != r.cols || rows != r.rows) {
+		r.history.cols = cols
+		r.history.rows = rows
+		r.history.Invalidate()
+	}
 	if cols != r.cols || rows != r.rows {
 		r.cols = cols
 		r.rows = rows
@@ -122,7 +134,7 @@ func (r *Renderer) Resize(cols, rows int) {
 		r.logViewportTop = 0
 		r.logHardwareRow = 0
 		r.logInit = false
-		if r.out != nil {
+		if r.out != nil && r.history == nil {
 			if r.keepScrollback {
 				// A resize is a discrete user action, like Ctrl+L: the
 				// old-width frame must be fully purged or the in-place
@@ -151,6 +163,10 @@ func (r *Renderer) Resize(cols, rows int) {
 // expand/collapse), because terminal scrollback cannot be edited
 // reliably once printed.
 func (r *Renderer) Clear() {
+	if r.history != nil {
+		r.history.Invalidate()
+		return
+	}
 	r.prev = nil
 	r.logChat = nil
 	r.logBottom = nil
@@ -201,6 +217,10 @@ func (r *Renderer) KeepsScrollback() bool { return r.keepScrollback }
 // whole terminal first. Useful when the cached diff is unreliable but a
 // visible full-screen flash would be too distracting.
 func (r *Renderer) Invalidate() {
+	if r.history != nil {
+		r.history.Invalidate()
+		return
+	}
 	r.prev = nil
 	r.logLines = nil
 }
@@ -412,13 +432,36 @@ func (r *Renderer) Draw(lines []string, cursorRow, cursorCol int) {
 	r.cursorCol = cursorCol
 }
 
+// DrawHistory displays a bounded history frame without modifying native
+// scrollback. Cursor coordinates are relative to bottom, as in DrawLog.
+func (r *Renderer) DrawHistory(chat, bottom []string, cursorBottomRow, cursorCol int) {
+	if r.history == nil {
+		_, _ = io.WriteString(r.out, SeqAltScreenOn)
+		r.history = &Renderer{out: r.out, cols: r.cols, rows: r.rows, theme: r.theme}
+	}
+	frame := append(append([]string(nil), chat...), bottom...)
+	cursorRow := cursorBottomRow
+	if cursorRow >= 0 {
+		cursorRow += len(chat)
+	}
+	r.history.Draw(frame, cursorRow, cursorCol)
+}
+
+// CloseHistory restores the main screen, including its saved cursor. Call on
+// shutdown as well as when returning to the live log.
+func (r *Renderer) CloseHistory() {
+	if r.history != nil {
+		_, _ = io.WriteString(r.out, SeqAltScreenOff)
+		r.history = nil
+	}
+}
+
 // DrawLog renders zot in the terminal's main screen as normal terminal
-// flow rather than a fixed full-screen frame. Chat lines are emitted once
-// into the host terminal scrollback; the current bottom block (dialogs,
-// slash popup, status, editor) is erased and redrawn in place at the end.
-//
-// cursorBottomRow/cursorCol are offsets into bottom, not the full frame.
+// flow rather than a fixed full-screen frame. Chat lines are emitted into
+// native scrollback and the bottom block is redrawn in place at the end.
+// Cursor coordinates are relative to bottom, not the full frame.
 func (r *Renderer) DrawLog(chat, bottom []string, cursorBottomRow, cursorCol int) {
+	r.CloseHistory()
 	if r.cols == 0 || r.rows == 0 {
 		return
 	}

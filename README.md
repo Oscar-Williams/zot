@@ -383,7 +383,7 @@ Five ops on the current session. `/session` alone opens a picker; each is also r
 
 Opens a turn picker for the current session, one row per user prompt, each showing the turn number, how many tools that turn invoked, and the first line of the prompt. `up`/`down` to pick, `enter` to jump, `esc` to cancel. Any printable rune while the picker is open extends a filter; backspace narrows it back. `/jump <text>` pre-applies the filter; if exactly one turn matches, zot jumps straight there without showing the picker.
 
-Jumping is non-destructive. The transcript is untouched, the viewport just scrolls so the chosen turn is at the top. A muted line at the top of the chat reads `viewing turn N of M, pgdn to catch up`. Scroll back to the bottom with `pgdn` (or keep scrolling with the arrow keys) and the indicator goes away.
+Jumping is non-destructive. The transcript and future model context are untouched. Zot opens a temporary history view with the chosen turn at or near the top and a `viewing turn N of M` indicator. Use `pgup` and `pgdn` to browse. Reaching the bottom restores the live view, including output received while browsing. History browsing uses the terminal's alternate screen rather than trying to reposition native scrollback. The normal live view still uses native terminal scrollback. Use `/session fork` instead if you want to branch from an earlier turn.
 
 ### `/btw`
 

@@ -555,6 +555,7 @@ type Interactive struct {
 	// don't forget they're looking at history.
 	parkedTurn  int
 	parkedTotal int
+	jumpRow     *int // pending target, applied after the picker closes and layout is known
 
 	// inputHistoryIndex is -1 when not browsing history. When the
 	// editor is empty, Up/Down can walk previous user prompts without
@@ -756,8 +757,8 @@ func (i *Interactive) Run(ctx context.Context) error {
 	// selection over the wheel-speed boost, so we no longer turn it
 	// on automatically. Wheel events fall through to the terminal's
 	// own scrollback handler.
-	// Keep zot on the terminal's main screen. We intentionally do not
-	// enter the alternate-screen buffer (CSI ?1049h). The renderer emits
+	// Keep the live log on the terminal's main screen. Only explicit
+	// history browsing uses the alternate screen. The renderer emits
 	// chat as normal terminal flow/scrollback and redraws only the live
 	// input/status block on normal typing.
 	_, _ = term.Write([]byte(tui.SeqBracketedPasteOn + tui.SeqEnhancedKeyboardOn + tui.SeqResetScrollRegion + tui.SeqDeleteKittyImages + tui.SeqClearScreenNoHome + tui.SeqClearScrollback + tui.MoveTo(1, 1)))
@@ -773,6 +774,7 @@ func (i *Interactive) Run(ctx context.Context) error {
 	// inactive TUI visible above it. Do not erase scrollback: users should
 	// still be able to review the session after closing zot.
 	defer term.Write([]byte(tui.SeqResetScrollRegion + tui.SeqDeleteKittyImages + tui.SeqEnhancedKeyboardOff + tui.SeqBracketedPasteOff + tui.ResetCursorColor() + tui.ResetCursorShape() + tui.SeqClearScreenNoHome + tui.SeqShowCursor))
+	defer i.rend.CloseHistory()
 	i.applyInputCursorColor()
 
 	// Streaming pacer: drains buffered text deltas at a steady rate
@@ -1303,6 +1305,7 @@ func anchorScrollOffset(offset, prevLen, newLen, prevRows, newRows int) int {
 // scrollToBottom pins the view to the latest content.
 func (i *Interactive) scrollToBottom() {
 	i.mu.Lock()
+	i.jumpRow = nil
 	i.scrollOffset = 0
 	i.parkedTurn = 0
 	i.parkedTotal = 0
@@ -1441,7 +1444,7 @@ func (i *Interactive) redraw() {
 	// from the chat below, instead of the diff path leaving stale
 	// dialog content behind. Equivalent to the user pressing ctrl+l.
 	overlayOpen := len(dialog) > 0 || len(suggest) > 0
-	if i.rend != nil && i.prevOverlayOpen && !overlayOpen {
+	if i.rend != nil && i.prevOverlayOpen && !overlayOpen && i.jumpRow == nil {
 		// An overlay (dialog or slash/file popup) just closed, so the
 		// bottom band shrinks. On terminals where we can drop
 		// scrollback, a full Clear is the simplest way to guarantee
@@ -1643,7 +1646,11 @@ func (i *Interactive) redraw() {
 	// let a shrinking chatRows pull the window toward the tail, which
 	// read as the viewport jumping to the bottom whenever the agent
 	// streamed text or a tool call grew the bottom band.
-	if i.scrollOffset > 0 && i.prevChatCols == cols && i.prevChatLen > 0 {
+	if i.jumpRow != nil {
+		i.scrollOffset = max(0, len(chat)-*i.jumpRow-chatRows)
+		i.jumpRow = nil
+		i.prevScrollOffset = i.scrollOffset
+	} else if i.scrollOffset > 0 && i.prevChatCols == cols && i.prevChatLen > 0 {
 		i.scrollOffset = anchorScrollOffset(i.scrollOffset,
 			i.prevChatLen, len(chat), i.prevChatRows, chatRows)
 	}
@@ -1820,8 +1827,11 @@ func (i *Interactive) redraw() {
 		cursorRow = -1
 		cursorCol = 0
 	}
-	_ = visibleChat // maintained for legacy scroll state/indicators; DrawLog owns chat viewport.
-	i.rend.DrawLog(chat, bottom, cursorRow, cursorCol)
+	if i.scrollOffset > 0 {
+		i.rend.DrawHistory(visibleChat, bottom, cursorRow, cursorCol)
+	} else {
+		i.rend.DrawLog(chat, bottom, cursorRow, cursorCol)
+	}
 }
 
 func hasImageEscape(line string) bool {
@@ -5303,8 +5313,13 @@ func (i *Interactive) openJumpDialog(args []string) {
 // message index to row is exact, regardless of variable-height tool
 // blocks above the target.
 func (i *Interactive) applyJumpSelection(msgIdx, turnNo int) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	cols := i.lastCols()
-	chat, anchors := i.view.BuildWithAnchors(cols)
+	// Older resumed messages otherwise have zero-row placeholder anchors.
+	i.view.TailLimit = 0
+	i.chatCacheValid = false
+	_, anchors := i.view.BuildWithAnchors(cols)
 	var row int
 	found := false
 	for _, a := range anchors {
@@ -5315,40 +5330,19 @@ func (i *Interactive) applyJumpSelection(msgIdx, turnNo int) {
 		}
 	}
 	if !found {
-		i.mu.Lock()
 		i.statusErr = "could not resolve jump target"
-		i.mu.Unlock()
 		return
 	}
-
-	chatLen := len(chat)
-	page := i.chatPage()
-	if page < 1 {
-		page = 1
+	if i.updateInfo.Available {
+		row += len(renderUpdateBanner(i.cfg.Theme, i.updateInfo, cols))
 	}
-	// scrollOffset is measured from the bottom of the chat slice, so
-	// to place `row` at the top of the viewport we want:
-	//     chatLen - scrollOffset - page == row
-	// Solve for scrollOffset and clamp to [0, chatLen-page].
-	offset := chatLen - (row + page)
-	if offset < 0 {
-		offset = 0
-	}
-	maxOffset := chatLen - page
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if offset > maxOffset {
-		offset = maxOffset
-	}
-
-	i.mu.Lock()
-	i.scrollOffset = offset
+	// Resolve against the final chat and bottom-band heights on redraw,
+	// not the previous picker layout or the approximate keyboard page size.
+	i.jumpRow = &row
 	i.parkedTurn = turnNo
 	i.parkedTotal = totalTurnsLocked(i.view.Messages)
 	i.statusOK = fmt.Sprintf("jumped to turn %d", turnNo)
 	i.statusErr = ""
-	i.mu.Unlock()
 }
 
 // totalTurnsLocked counts user messages in the transcript. Caller is
