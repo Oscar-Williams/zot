@@ -2,17 +2,19 @@ package modes
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/patriceckhart/zot/packages/agent/skills"
 	"github.com/patriceckhart/zot/packages/tui"
 )
 
-// skillsDialog lists every discovered skill and lets the user view
-// the body of one inline. View is read-only — the model loads skills
-// itself via the `skill` tool. This dialog is for inspection.
+// skillsDialog lists discovered skills, their pin scopes, and their bodies.
+// Pin persistence is handled by the interactive host.
 type skillsDialog struct {
 	active  bool
+	pins    skills.Pins
+	canPin  bool
 	skills  []*skills.Skill
 	cursor  int
 	viewing *skills.Skill // when non-nil, render the body instead of the list
@@ -98,6 +100,9 @@ func (d *skillsDialog) Render(th tui.Theme, width int) []string {
 	}
 
 	out := []string{frameHeader(th, "skills (enter to view, esc to close)", width)}
+	if d.canPin {
+		out = append(out, "  "+th.FG256(th.Muted, "p: project pin, g: global pin (toggle)"))
+	}
 	if len(d.skills) == 0 {
 		out = append(out, "  "+th.FG256(th.Muted, "no user skills loaded"))
 		out = append(out, "  "+th.FG256(th.Muted, "add SKILL.md under $ZOT_HOME/skills, .zot/skills, .claude/skills, or .agents/skills"))
@@ -112,7 +117,18 @@ func (d *skillsDialog) Render(th tui.Theme, width int) []string {
 	}
 	for i := start; i < end; i++ {
 		s := d.skills[i]
-		row := formatSkillRow(s, width-2)
+		marker := ""
+		if d.canPin {
+			project, global := "-", "-"
+			if slices.Contains(d.pins.Project, s.Name) {
+				project = "p"
+			}
+			if slices.Contains(d.pins.Global, s.Name) {
+				global = "g"
+			}
+			marker = "[" + project + global + "] "
+		}
+		row := marker + formatSkillRow(s, width-2-len(marker))
 		if i == d.cursor {
 			out = append(out, th.PadHighlight("  "+row, width))
 		} else {

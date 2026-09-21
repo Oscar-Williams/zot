@@ -309,6 +309,11 @@ type InteractiveConfig struct {
 	// so the picker reflects edits made during the session.
 	SkillSnapshot func() []*skills.Skill
 
+	// Pin preferences are owned by the host, not the picker.
+	LoadSkillPins       func(cwd string) (skills.Pins, error)
+	ToggleSkillPin      func(cwd, name string, global bool) error
+	PreloadPinnedSkills bool
+
 	// ChangelogChan, if non-nil, delivers release-notes for the
 	// current binary version once at startup. Interactive opens a
 	// dismissible overlay when the channel produces a non-empty
@@ -531,6 +536,9 @@ type Interactive struct {
 	extPanel          *extPanelDialog
 	llamaConfigured   bool
 
+	pinnedSkillsPending bool
+	pinnedSkills        []*skills.Skill
+
 	// swarmWatch tracks auto-swarm sub-agents the main agent spawned
 	// via swarm_spawn. Each entry holds the agent + the task text;
 	// a per-entry goroutine waits on the agent's terminal state. When
@@ -703,6 +711,7 @@ func NewInteractive(cfg InteractiveConfig) *Interactive {
 		inputHistoryIndex: -1,
 		reloadErrors:      append([]string(nil), cfg.StartupExtensionErrors...),
 	}
+	i.SetPinnedSkillsPending(cfg.PreloadPinnedSkills)
 	var keymapIssues []string
 	i.keymap, keymapIssues = compileKeymap(cfg.Keymap)
 	i.reloadErrors = append(i.reloadErrors, keymapIssues...)
@@ -1568,6 +1577,9 @@ func (i *Interactive) redraw() {
 		bottom = append(bottom, "")
 	}
 	bottom = append(bottom, dialog...)
+	if len(dialog) == 0 && len(suggest) == 0 {
+		bottom = append(bottom, i.pinnedSkillsNotice(cols)...)
+	}
 	// The swarm dashboard owns the bottom of the screen while it's
 	// active: it has its own inline editors for spawn (`n`) and
 	// prompt (`p`), so the main input would be a confusing second
@@ -2484,7 +2496,9 @@ func (i *Interactive) handleKey(ctx context.Context, k tui.Key) (done bool) {
 			i.invalidate()
 			return false
 		}
-		i.skillsDialog.HandleKey(k)
+		if !i.handleSkillPinKey(k) {
+			i.skillsDialog.HandleKey(k)
+		}
 		i.invalidate()
 		return false
 	}
@@ -3204,6 +3218,7 @@ func (i *Interactive) completeStartupPre() {
 // single-threaded. Input entered while resources were reloading wins over the
 // deferred prefill rather than being overwritten.
 func (i *Interactive) applyStartupPreResult(result startupPreResult) {
+	i.refreshSkillPins()
 	if result.deferred == "" {
 		return
 	}
@@ -4600,6 +4615,7 @@ func (i *Interactive) runSlash(ctx context.Context, cmd string) (done bool) {
 		i.reloadErrors = nil
 		i.view.InvalidateRenderCache()
 		i.mu.Unlock()
+		i.SetPinnedSkillsPending(true)
 	case "/help":
 		i.mu.Lock()
 		i.helpBlock = renderHelpBlock(i.cfg.Theme, i.lastCols(), i.llamaConfigured, i.keymap)
@@ -5281,6 +5297,7 @@ func (i *Interactive) openSkillsDialog() {
 		list = i.cfg.SkillSnapshot()
 	}
 	i.skillsDialog.Open(list)
+	i.refreshSkillPins()
 	i.invalidate()
 }
 
@@ -5989,6 +6006,9 @@ func (i *Interactive) startTurnRequest(parent context.Context, prompt string, im
 
 	ctx, cancel := context.WithCancel(parent)
 	i.mu.Lock()
+	if !overflowRecoveryAttempted && !i.awaitingStartupPre {
+		prompt = i.preloadPinnedPromptLocked(prompt)
+	}
 	i.busy = true
 	i.spin.Start()
 	i.cancelTurn = cancel

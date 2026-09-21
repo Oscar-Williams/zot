@@ -89,6 +89,64 @@ In zot, run `/skills`. A picker lists every discovered skill with its
 description and source path. Press enter on a row to view the full
 body inline. Press esc to go back.
 
+## Pinning skills
+
+In the `/skills` list, press `p` to toggle a project pin or `g` to toggle a
+global pin. Rows show `[p-]`, `[-g]`, or `[pg]` for the selected scopes.
+Global and project pins are combined in alphabetical name order, with each
+skill loaded only once. Unpinning one scope leaves the other scope intact.
+
+On a fresh interactive session, a read-only `[Pinned skills]` section above
+the input lists the skills that will accompany your next message. Its heading,
+spacing, and indented names match the other startup information sections.
+Each name shows its pin scope: `(project)`, `(global)`, or `(project + global)`.
+Opening zot does not start a model turn. The complete skill bodies and their
+source directories are included
+in your first submitted message and persisted with it, without changing the
+editor text. `/clear` prepares pins again. Switching working directories with
+`/cd` prepares the new directory's pins. Resuming, importing, or branching an
+existing session does not inject pins again, even when its transcript is empty.
+Changing models and compacting context do not reload pins.
+
+Changing pins before the first message updates the pending selection.
+After that message, pin changes apply on the next fresh conversation or
+`/clear`. Unpinning does not remove instructions already in the transcript.
+There are no per-request removal controls in the editor.
+
+Preferences live in `$ZOT_HOME/skill-pins.json`, not in the repository.
+Project keys are absolute starting directories with symlinks resolved when
+possible, not Git roots. Subdirectories have separate project pins.
+For example:
+
+```json
+{
+  "global": ["code-review"],
+  "projects": {
+    "/home/me/work/app": ["test-fix"]
+  }
+}
+```
+
+Pins store discovered names, including extension namespaces, rather than
+copies of skill files. Normal discovery precedence still applies, so a global
+pin may resolve to a project's higher-priority skill of the same name.
+Missing or disabled sources produce a warning and are skipped. A malformed
+preferences file is reported and is not overwritten by a toggle.
+`--no-skill` disables preloading. Explicitly pinning a skill with
+`disable-model-invocation: true` is allowed.
+
+Print, stream, and JSON modes also include pins with the first main prompt of
+a fresh session, including runs with session persistence disabled. Zotfile
+startup `pre` commands run before pins are applied. RPC, standalone bot modes,
+the SDK, and swarm background agents do not automatically load pin preferences.
+The interactive Telegram bridge uses the interactive conversation's pins.
+
+Pinning saves repeated invocation, not tokens: complete skill bodies add to
+the context window and may later be summarized by compaction. Keep pins small,
+especially with local models. Preferences are saved via temporary-file replacement.
+Concurrent edits from separate zot processes are not merged. An already open interactive
+session refreshes preferences on `/skills` or `/clear`, not continuously.
+
 ## Invoking skills
 
 For normal skills, the system prompt tells the model the skill names and

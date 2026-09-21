@@ -477,6 +477,12 @@ Opens a dialog with every persistent setting. `up`/`down` to navigate, `enter` o
 
 Opens a picker listing every discovered SKILL.md file, built-ins hidden. Each row shows the skill name, source, and description. `enter` opens the body inline (scrollable with `up`/`down`/`pgup`/`pgdn`); `esc` goes back. Re-runs discovery each time it opens, so edits to a SKILL.md during a session are reflected immediately.
 
+Press `p` or `g` in the skills list to toggle project or global pins. Pinned
+instructions accompany your first message in a fresh conversation and after
+`/clear`, without starting a model turn on their own. A read-only notice above
+the input shows the pending skills. Resuming does not reload pins. See
+[pinning skills](docs/skills.md#pinning-skills) for scope, storage, and mode support.
+
 ### `/compact`
 
 Sends the current transcript through the model with a structured summarization prompt. The returned summary replaces the transcript as one synthetic user message, with the last few exchanges kept verbatim for continuity. The status bar's context meter resets. Use it when the context meter creeps past ~80%. Press `ctrl+o` to expand the summary. Expanded text wraps to the current terminal width, including after resizing.

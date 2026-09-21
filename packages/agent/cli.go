@@ -428,7 +428,7 @@ func runPrintMode(ctx context.Context, args Args, version string) error {
 
 	ag := r.NewAgent()
 	wireNonInteractiveAgentExtHooks(ctx, ag, extMgr)
-	sess, _ := openOrCreateSession(args, r, ag, version)
+	sess, fresh, _ := openOrCreateSessionState(args, r, ag, version)
 	defer sess.Close()
 
 	piped, _ := readAllStdin()
@@ -442,6 +442,7 @@ func runPrintMode(ctx context.Context, args Args, version string) error {
 		return err
 	}
 	reloadResourcesAfterStartupPre(ctx, args, extMgr, r.Sandbox, ag)
+	prompt = preloadSkillPins(args, fresh, prompt, os.Stderr)
 	started := time.Now()
 	usage, err := modes.RunPrint(ctx, ag, prompt, nil, os.Stdout)
 	elapsed := time.Since(started)
@@ -468,7 +469,7 @@ func runStreamMode(ctx context.Context, args Args, version string) error {
 
 	ag := r.NewAgent()
 	wireNonInteractiveAgentExtHooks(ctx, ag, extMgr)
-	sess, _ := openOrCreateSession(args, r, ag, version)
+	sess, fresh, _ := openOrCreateSessionState(args, r, ag, version)
 	defer sess.Close()
 
 	piped, _ := readAllStdin()
@@ -485,6 +486,7 @@ func runStreamMode(ctx context.Context, args Args, version string) error {
 	}
 	finishPre()
 	reloadResourcesAfterStartupPre(ctx, args, extMgr, r.Sandbox, ag)
+	prompt = preloadSkillPins(args, fresh, prompt, os.Stderr)
 	err = modes.RunStream(ctx, ag, prompt, nil, os.Stdout)
 	WriteNewTranscript(ag, sess, start)
 	return err
@@ -547,7 +549,7 @@ func runJSONMode(ctx context.Context, args Args, version string) error {
 
 	ag := r.NewAgent()
 	wireNonInteractiveAgentExtHooks(ctx, ag, extMgr)
-	sess, _ := openOrCreateSession(args, r, ag, version)
+	sess, fresh, _ := openOrCreateSessionState(args, r, ag, version)
 	defer sess.Close()
 
 	piped, _ := readAllStdin()
@@ -566,6 +568,7 @@ func runJSONMode(ctx context.Context, args Args, version string) error {
 		return err
 	}
 	reloadResourcesAfterStartupPre(ctx, args, extMgr, r.Sandbox, ag)
+	prompt = preloadSkillPins(args, fresh, prompt, os.Stderr)
 	err = modes.RunJSON(ctx, ag, prompt, nil, os.Stdout)
 	WriteNewTranscript(ag, sess, start)
 	return err
@@ -949,6 +952,7 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 	})
 
 	var sess *core.Session
+	freshSession := true
 	var sessBaselineMsgs int // messages already on disk when current session opened
 	// persistMu guards sess + sessBaselineMsgs against concurrent access
 	// from the agent loop's per-message persistence hook (runs on the
@@ -957,7 +961,7 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 	// races with a finishing turn could double-write or lose messages.
 	var persistMu sync.Mutex
 	if ag != nil {
-		sess, _ = openOrCreateSession(args, r, ag, version)
+		sess, freshSession, _ = openOrCreateSessionState(args, r, ag, version)
 		if ag != nil {
 			sessBaselineMsgs = len(ag.Messages())
 		}
@@ -1087,6 +1091,9 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 		// the hydrated tail.
 		sessBaselineMsgs = fullMsgCount
 		persistMu.Unlock()
+		if iv != nil {
+			iv.SetPinnedSkillsPending(false)
+		}
 		// Re-scope the swarm dashboard to the new session so /swarm
 		// only shows agents this session spawned. swarmMgr may be nil
 		// here if we haven't reached the construction site yet (it
@@ -1223,6 +1230,7 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 		if iv != nil {
 			startupPaths := instructionContextPaths(loadAgentsContext(absPath, ZotHome()))
 			iv.ApplyChangedCWDWithStartupContext(newAg, newProvider, newModel, absPath, startupPaths)
+			iv.SetPinnedSkillsPending(true)
 		}
 
 		// Re-scope the swarm dashboard to the new session.
@@ -1457,28 +1465,16 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 			}
 			_ = MarkChangelogShown(v)
 		},
-		SkillSnapshot: func() []*skills.Skill {
+		PreloadPinnedSkills: freshSession && !args.NoSkill,
+		LoadSkillPins: func(cwd string) (skills.Pins, error) {
 			if args.NoSkill {
-				// --no-skill: nothing for the picker to show.
-				return nil
+				return skills.Pins{}, nil
 			}
-			// Re-discover so the picker reflects edits made during
-			// the session. Cheap; SKILL.md files are small. Filter
-			// out built-in skills — they're hidden from user-facing
-			// surfaces because they're implementation detail; the
-			// model still sees them through the system-prompt
-			// manifest and the skill tool.
-			userHome, _ := os.UserHomeDir()
-			var sources []skills.Source
-			if args.WithSkills {
-				sources = append(sources, skills.SearchSources(ZotHome(), r.CWD, userHome)...)
-			}
-			if !args.NoExt || len(args.Exts) > 0 {
-				extSources, _ := extensions.PlanSkillSources(ZotHome(), r.CWD, args.Exts, !args.NoExt)
-				sources = append(extSources, sources...)
-			}
-			list, _ := skills.DiscoverSources(sources, true)
-			return skills.VisibleSkills(list)
+			return loadSkillPins(cwd)
+		},
+		ToggleSkillPin: toggleSkillPin,
+		SkillSnapshot: func() []*skills.Skill {
+			return userSkillSnapshot(args)
 		},
 		NoYolo:      args.NoYolo,
 		ConfirmGate: confirmGate,
@@ -1574,9 +1570,16 @@ func agentSessionsRoot(root string, args Args) string {
 // with a nil error if session persistence is disabled. When a session
 // exists, its id is bound onto ag so providers can sticky-route.
 func openOrCreateSession(args Args, r Resolved, ag *core.Agent, version string) (*core.Session, error) {
+	s, _, err := openOrCreateSessionState(args, r, ag, version)
+	return s, err
+}
+
+// The freshness result distinguishes an empty resumed session from a new one.
+func openOrCreateSessionState(args Args, r Resolved, ag *core.Agent, version string) (*core.Session, bool, error) {
+	fresh := true
 	if args.NoSess {
 		setZotSessionEnvironment(r, nil)
-		return nil, nil
+		return nil, fresh, nil
 	}
 	// Sweep meta-only files left over from older zot versions (and from
 	// any session that crashed before its first AppendMessage). Cheap;
@@ -1591,6 +1594,7 @@ func openOrCreateSession(args Args, r Resolved, ag *core.Agent, version string) 
 	switch {
 	case args.Session != "":
 		s, msgs, err = core.OpenSession(args.Session)
+		fresh = false
 		// The swarm-agent child passes a fixed --session path that
 		// may not exist yet on first Spawn. Treat ENOENT as "create
 		// a fresh session AT THIS PATH" so the conversation actually
@@ -1601,29 +1605,32 @@ func openOrCreateSession(args Args, r Resolved, ag *core.Agent, version string) 
 		// paths that already exist on disk.
 		if err != nil && errors.Is(err, os.ErrNotExist) {
 			s, err = core.NewSessionAtPath(args.Session, args.CWD, r.Provider, r.Model, version)
+			fresh = true
 			msgs = nil
 		}
 	case args.Continue:
 		latest := core.LatestSession(sessionsRoot, args.CWD)
 		if latest != "" {
 			s, msgs, err = core.OpenSession(latest)
+			fresh = false
 		}
 	case args.Resume:
 		picked, perr := pickSession(sessionsRoot, args.CWD)
 		if perr != nil {
-			return nil, perr
+			return nil, false, perr
 		}
 		if picked != "" {
 			s, msgs, err = core.OpenSession(picked)
+			fresh = false
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if s == nil {
 		s, err = core.NewSession(sessionsRoot, args.CWD, r.Provider, r.Model, version)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	} else {
 		ag.SetMessages(msgs)
@@ -1634,7 +1641,7 @@ func openOrCreateSession(args Args, r Resolved, ag *core.Agent, version string) 
 	}
 	bindAgentSession(ag, s)
 	setZotSessionEnvironment(r, s)
-	return s, nil
+	return s, fresh, nil
 }
 
 // setZotSessionEnvironment publishes the non-secret runtime metadata that
