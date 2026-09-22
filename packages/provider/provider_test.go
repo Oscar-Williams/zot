@@ -295,6 +295,28 @@ func TestAnthropicBuildRequestStripsAssistantImages(t *testing.T) {
 	}
 }
 
+func TestRepairOrphanedToolResultsPreservesRepeatedToolCallPairs(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleAssistant, Content: []Content{ToolCallBlock{ID: "reused", Name: "read"}}},
+		{Role: RoleTool, Content: []Content{ToolResultBlock{CallID: "reused", Content: []Content{TextBlock{Text: "first"}}}}},
+		{Role: RoleAssistant, Content: []Content{ToolCallBlock{ID: "reused", Name: "read"}}},
+		{Role: RoleTool, Content: []Content{ToolResultBlock{CallID: "reused", Content: []Content{TextBlock{Text: "second"}}}}},
+	}
+
+	got := RepairOrphanedToolResults(msgs)
+	if len(got) != len(msgs) {
+		t.Fatalf("messages=%d, want %d valid repeated-ID pairs", len(got), len(msgs))
+	}
+	for _, index := range []int{1, 3} {
+		if len(got[index].Content) != 1 {
+			t.Fatalf("message %d content=%d, want 1 tool result", index, len(got[index].Content))
+		}
+		if _, ok := got[index].Content[0].(ToolResultBlock); !ok {
+			t.Fatalf("message %d content type=%T, want ToolResultBlock", index, got[index].Content[0])
+		}
+	}
+}
+
 func TestAnthropicBuildRequestDeduplicatesToolResults(t *testing.T) {
 	c := NewAnthropic("x", "").(*anthropicClient)
 	wire, err := c.buildRequest(Request{
@@ -328,6 +350,33 @@ func TestAnthropicBuildRequestDeduplicatesToolResults(t *testing.T) {
 	}
 	if string(result.Content) != `"first result"` {
 		t.Fatalf("tool result content=%s", result.Content)
+	}
+}
+
+func TestAnthropicBuildRequestPreservesRepeatedToolCallPairs(t *testing.T) {
+	c := NewAnthropic("x", "").(*anthropicClient)
+	wire, err := c.buildRequest(Request{
+		Model: "claude-sonnet-4-5",
+		Messages: []Message{
+			{Role: RoleAssistant, Content: []Content{ToolCallBlock{ID: "reused", Name: "read"}}},
+			{Role: RoleTool, Content: []Content{ToolResultBlock{CallID: "reused", Content: []Content{TextBlock{Text: "first"}}}}},
+			{Role: RoleAssistant, Content: []Content{ToolCallBlock{ID: "reused", Name: "read"}}},
+			{Role: RoleTool, Content: []Content{ToolResultBlock{CallID: "reused", Content: []Content{TextBlock{Text: "second"}}}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wire.Messages) != 4 {
+		t.Fatalf("messages=%d, want both repeated-ID tool result pairs", len(wire.Messages))
+	}
+	for _, index := range []int{1, 3} {
+		if len(wire.Messages[index].Content) != 1 {
+			t.Fatalf("message %d content=%d, want 1 tool result", index, len(wire.Messages[index].Content))
+		}
+		if _, ok := wire.Messages[index].Content[0].(anthToolResultBlock); !ok {
+			t.Fatalf("message %d content type=%T, want anthToolResultBlock", index, wire.Messages[index].Content[0])
+		}
 	}
 }
 
