@@ -35,8 +35,10 @@ func (s *timestampSettingsTestStore) SetChatTimestampDate(mode string) error {
 }
 
 func TestChatTimestampDateSetting(t *testing.T) {
+	// Exercise repainting independently of the developer's terminal environment.
+	t.Setenv("TERM_PROGRAM", "")
 	store := &timestampSettingsTestStore{}
-	i := NewInteractive(InteractiveConfig{SettingsStore: store})
+	i := NewInteractive(InteractiveConfig{Terminal: &cleanupTestTerminal{}, SettingsStore: store})
 	item := i.chatTimestampDateSetting()
 	if item.options[item.choice].value != "day_start" {
 		t.Fatal("incorrect date default")
@@ -62,8 +64,10 @@ func TestChatTimestampDateSetting(t *testing.T) {
 }
 
 func TestChatTimestampSettings(t *testing.T) {
+	// Exercise repainting independently of the developer's terminal environment.
+	t.Setenv("TERM_PROGRAM", "")
 	store := &timestampSettingsTestStore{}
-	i := NewInteractive(InteractiveConfig{SettingsStore: store})
+	i := NewInteractive(InteractiveConfig{Terminal: &cleanupTestTerminal{}, SettingsStore: store})
 	if i.view.ChatTimestamps || tui.ChatTimestampInterval(i.view.ChatTimestampIntervalMinutes) != 0 {
 		t.Fatal("incorrect startup defaults")
 	}
