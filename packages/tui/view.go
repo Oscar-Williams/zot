@@ -162,6 +162,11 @@ type View struct {
 	// preview line, and an explicit error indicator for failed calls.
 	CollapseToolCall bool
 
+	// ChatTimestamps decorates existing separator rows with stored message times.
+	ChatTimestamps               bool
+	ChatTimestampIntervalMinutes *int
+	ChatTimestampDate            string
+
 	// ExpandAll forces every long tool result to render in full.
 	// Toggled from the tui by ctrl+o. When false, results longer than
 	// ToolCollapseLines collapse to ToolCollapsePreview lines plus a
@@ -434,6 +439,7 @@ func (v *View) BuildWithAnchors(width int) ([]string, []MessageAnchor) {
 	out := make([]string, 0, total+16)
 	out = append(out, v.renderStartupResources(width)...)
 	anchors := make([]MessageAnchor, 0, len(v.Messages))
+	timestamps := v.messageTimestamps()
 	for idx := range v.Messages {
 		anchors = append(anchors, MessageAnchor{MessageIdx: idx, Row: len(out)})
 		out = append(out, rendered[idx]...)
@@ -446,7 +452,11 @@ func (v *View) BuildWithAnchors(width int) ([]string, []MessageAnchor) {
 		if len(rendered[idx]) == 0 {
 			continue
 		}
-		out = append(out, "")
+		separator := ""
+		if timestamps != nil {
+			separator = v.timestampRow(timestamps[idx], width)
+		}
+		out = append(out, separator)
 	}
 	// Only render the streaming header/body when there's actual
 	// text to show. An empty streaming block (streamOn=true,

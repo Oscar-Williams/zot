@@ -124,6 +124,10 @@ type InteractiveConfig struct {
 	// and failure status while hiding the rest of the body.
 	CollapseToolCall *bool
 
+	ChatTimestamps               bool
+	ChatTimestampIntervalMinutes *int
+	ChatTimestampDate            string
+
 	// TUIInputStyle controls the main input rendering: plain or lines.
 	TUIInputStyle string
 
@@ -353,20 +357,23 @@ type modelRefreshResult struct{ err error }
 
 // Interactive is the TUI chat loop.
 type chatCacheKey struct {
-	cols            int
-	agentRev        uint64
-	statusOK        string
-	statusErr       string
-	help            string
-	extNotes        string
-	reloadErrors    string
-	updateAvailable bool
-	updateCurrent   string
-	updateLatest    string
-	updateURL       string
-	welcomeShowVer  bool
-	expandAll       bool
-	tailLimit       int
+	cols                  int
+	agentRev              uint64
+	statusOK              string
+	statusErr             string
+	help                  string
+	extNotes              string
+	reloadErrors          string
+	updateAvailable       bool
+	updateCurrent         string
+	updateLatest          string
+	updateURL             string
+	welcomeShowVer        bool
+	expandAll             bool
+	tailLimit             int
+	chatTimestamps        bool
+	chatTimestampInterval int
+	chatTimestampDate     string
 }
 
 // QuickModelShortcut is one configured quick model switch slot.
@@ -666,16 +673,19 @@ func NewInteractive(cfg InteractiveConfig) *Interactive {
 	i := &Interactive{
 		cfg: cfg,
 		view: &tui.View{
-			Theme:                 cfg.Theme,
-			ImageProto:            effectiveImageProtocol(cfg.InlineImagesEnabled),
-			FlatTools:             cfg.FlatTools,
-			CompactUser:           cfg.CompactUser,
-			CompactMode:           cfg.CompactMode != nil && *cfg.CompactMode,
-			CollapseToolCall:      cfg.CollapseToolCall != nil && *cfg.CollapseToolCall,
-			StartupAgentName:      startupAgentName,
-			StartupContextPaths:   startupContextPaths,
-			StartupExtensionNames: startupExtensionNames,
-			StartupSkillNames:     startupSkillNames,
+			Theme:                        cfg.Theme,
+			ImageProto:                   effectiveImageProtocol(cfg.InlineImagesEnabled),
+			FlatTools:                    cfg.FlatTools,
+			CompactUser:                  cfg.CompactUser,
+			CompactMode:                  cfg.CompactMode != nil && *cfg.CompactMode,
+			CollapseToolCall:             cfg.CollapseToolCall != nil && *cfg.CollapseToolCall,
+			ChatTimestamps:               cfg.ChatTimestamps,
+			ChatTimestampDate:            tui.ChatTimestampDateMode(cfg.ChatTimestampDate),
+			ChatTimestampIntervalMinutes: cfg.ChatTimestampIntervalMinutes,
+			StartupAgentName:             startupAgentName,
+			StartupContextPaths:          startupContextPaths,
+			StartupExtensionNames:        startupExtensionNames,
+			StartupSkillNames:            startupSkillNames,
 		},
 		// Prompt is the standard half-block accent bar used by chat
 		// speaker labels too, so the input gutter matches the rest
@@ -1049,20 +1059,23 @@ func (i *Interactive) chatCacheKeyLocked(cols int) (chatCacheKey, bool) {
 	}
 	showVer := len(i.view.Messages) == 0 && !i.streamOn && len(i.toolOrder) == 0 && !i.welcomeStart.IsZero() && time.Since(i.welcomeStart) < welcomeVersionDuration
 	return chatCacheKey{
-		cols:            cols,
-		agentRev:        rev,
-		statusOK:        i.statusOK,
-		statusErr:       i.statusErr,
-		help:            strings.Join(i.helpBlock, "\n"),
-		extNotes:        strings.Join(i.extNotes, "\n"),
-		reloadErrors:    strings.Join(i.reloadErrors, "\n"),
-		updateAvailable: i.updateInfo.Available,
-		updateCurrent:   i.updateInfo.Current,
-		updateLatest:    i.updateInfo.Latest,
-		updateURL:       i.updateInfo.URL,
-		welcomeShowVer:  showVer,
-		expandAll:       i.view.ExpandAll,
-		tailLimit:       i.view.TailLimit,
+		cols:                  cols,
+		agentRev:              rev,
+		statusOK:              i.statusOK,
+		statusErr:             i.statusErr,
+		help:                  strings.Join(i.helpBlock, "\n"),
+		extNotes:              strings.Join(i.extNotes, "\n"),
+		reloadErrors:          strings.Join(i.reloadErrors, "\n"),
+		updateAvailable:       i.updateInfo.Available,
+		updateCurrent:         i.updateInfo.Current,
+		updateLatest:          i.updateInfo.Latest,
+		updateURL:             i.updateInfo.URL,
+		welcomeShowVer:        showVer,
+		expandAll:             i.view.ExpandAll,
+		tailLimit:             i.view.TailLimit,
+		chatTimestamps:        i.view.ChatTimestamps,
+		chatTimestampDate:     i.view.ChatTimestampDate,
+		chatTimestampInterval: tui.ChatTimestampInterval(i.view.ChatTimestampIntervalMinutes),
 	}, true
 }
 
@@ -3698,6 +3711,21 @@ func (i *Interactive) openSettingsDialog() {
 			value: collapseToolCall,
 		},
 		{
+			key:   "timestamps",
+			label: "timestamps",
+			desc:  "configure chat timestamps and their interval",
+			children: []settingsItem{
+				{
+					key:   "chat_timestamps",
+					label: "enabled",
+					desc:  "show stored message times on existing separator rows after messages complete",
+					value: i.cfg.ChatTimestamps,
+				},
+				i.chatTimestampIntervalSetting(),
+				i.chatTimestampDateSetting(),
+			},
+		},
+		{
 			key:   "show_instructions_at_startup",
 			label: "show loaded resources at startup",
 			desc:  "list loaded context files, extensions, and user-installed skills above the transcript",
@@ -3760,6 +3788,10 @@ func (i *Interactive) applySettingChange(act settingsAction) {
 		i.applyReasoningSetting(act.StringValue)
 	case act.Key == "theme":
 		i.applyThemeSetting(act.StringValue)
+	case act.Key == "chat_timestamp_date":
+		i.applyChatTimestampDate(act.StringValue)
+	case act.Key == "chat_timestamp_interval_minutes":
+		i.applyChatTimestampInterval(act.StringValue)
 	case act.Key == "auto_compact_threshold":
 		i.applyAutoCompactThresholdSetting(act.StringValue)
 	case act.Key == "tui_input_style":
@@ -3966,6 +3998,10 @@ func (i *Interactive) refreshQuickModelSettingsItem(slot int) {
 }
 
 func (i *Interactive) applySettingToggle(key string, value bool) {
+	if key == "chat_timestamps" {
+		i.applyChatTimestamps(value)
+		return
+	}
 	// Every setting toggle forces a full repaint at the end — same
 	// effect as the user pressing Ctrl+L — so any per-setting visual
 	// change (image rendering, status copy, future toggles) lands

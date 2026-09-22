@@ -113,6 +113,13 @@ type Config struct {
 	// Toggle from /settings.
 	CollapseToolCall *bool `json:"collapse_tool_call,omitempty"`
 
+	// ChatTimestamps shows stored message times on existing transcript separators.
+	ChatTimestamps bool `json:"chat_timestamps,omitempty"`
+	// ChatTimestampIntervalMinutes defaults to zero, showing every message.
+	ChatTimestampIntervalMinutes *int `json:"chat_timestamp_interval_minutes,omitempty"`
+	// ChatTimestampDate is day_start (default) or every_message.
+	ChatTimestampDate string `json:"chat_timestamp_date,omitempty"`
+
 	// ShowInstructionsAtStartup lists loaded context files, extensions,
 	// and user-installed skills above the transcript. Off by default;
 	// nil/missing means disabled. Toggle from /settings.

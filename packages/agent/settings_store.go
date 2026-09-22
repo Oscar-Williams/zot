@@ -131,6 +131,34 @@ func (configSettingsStore) SetCollapseToolCall(enabled bool) error {
 	return SaveConfig(cfg)
 }
 
+func (configSettingsStore) SetChatTimestamps(enabled bool) error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.ChatTimestamps = enabled
+	return SaveConfig(cfg)
+}
+
+func (configSettingsStore) SetChatTimestampDate(mode string) error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.ChatTimestampDate = tui.ChatTimestampDateMode(mode)
+	return SaveConfig(cfg)
+}
+
+func (configSettingsStore) SetChatTimestampInterval(minutes int) error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	minutes = tui.ChatTimestampInterval(&minutes)
+	cfg.ChatTimestampIntervalMinutes = &minutes
+	return SaveConfig(cfg)
+}
+
 func (configSettingsStore) SetShowInstructionsAtStartup(enabled bool) error {
 	cfg, err := LoadConfig()
 	if err != nil {
