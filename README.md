@@ -137,6 +137,7 @@ All data lives under `$ZOT_HOME`:
 ```
 $ZOT_HOME/
 ├── config.json         # last-used provider/model/theme, saved automatically
+├── models.json         # optional: user-defined models and provider endpoints
 ├── auth.json           # api keys and oauth tokens (mode 0600)
 ├── sessions/           # jsonl transcripts, one dir per cwd
 ├── models-cache.json   # live /v1/models discovery cache (6h ttl)
@@ -149,6 +150,16 @@ $ZOT_HOME/
 ```
 
 Drop a `SYSTEM.md` in `$ZOT_HOME` to replace the built-in identity and zot-docs guidance for every run. `--system-prompt` still wins per-invocation. Pass an empty value (`--system-prompt ""`) to intentionally omit the built-in identity. Custom prompts still receive appended instructions and generated context, including `AGENTS.md`, skills, auto-swarm guidance when enabled, and the date/cwd footer. Delete the file to revert to the default.
+
+### Configuration files
+
+zot keeps both configuration and runtime state under `$ZOT_HOME`, even when that directory is under the platform's state directory. You can edit configuration files there directly while zot is not running:
+
+- `config.json` selects the default `provider` and `model` and stores UI preferences. zot also updates it when you change settings or select a model interactively. Explicit `--provider` and `--model` flags override the saved selection for a run.
+- `models.json` optionally defines model metadata and provider endpoints (`baseUrl`). Adding a model here does not select it as the default. See [Custom models](#custom-models).
+- `auth.json` stores credentials, not model definitions. Prefer `/login` for supported providers, and keep secrets out of `config.json` and `models.json`.
+
+Neither `config.json` nor `models.json` is required to start zot with an explicit provider and model. Without a saved or explicit provider, zot defaults to Anthropic and may offer login if no usable credentials are available. Ollama needs no login. See [Local models with ollama](#local-models-with-ollama) for minimal configuration and remote-server examples.
 
 ### HTTP proxy
 
@@ -777,15 +788,20 @@ ollama pull qwen3.5:4b
 zot --provider ollama --model qwen3.5:4b
 ```
 
-That's it. No API key needed for local models. zot defaults to `http://localhost:11434`.
+No login or API key is needed for local models. zot defaults to `http://localhost:11434`. The model ID must match a model installed on that Ollama server, including its tag. The server must already be running.
 
-For a remote ollama instance or one behind auth:
+#### Save a local default
 
-```bash
-zot --provider ollama --model llama3 --base-url https://my-server.com/v1 --api-key my-token
+To start with just `zot`, create `$ZOT_HOME/config.json` with the following fields, or merge them into your existing configuration:
+
+```json
+{
+  "provider": "ollama",
+  "model": "qwen3.5:4b"
+}
 ```
 
-You can also add models to your `models.json` so you don't need flags every time:
+A `models.json` file is not required for this setup. If you want explicit model metadata, add the following to `$ZOT_HOME/models.json`. This registers a model but does not change the default selection in `config.json`:
 
 ```json
 {
@@ -804,7 +820,89 @@ You can also add models to your `models.json` so you don't need flags every time
 }
 ```
 
-The `ollama` provider uses the OpenAI chat completions protocol internally, so it also works with any OpenAI-compatible server (vLLM, LM Studio, LocalAI, etc.).
+Set `contextWindow` and `maxTokens` to limits your model and server configuration actually support. These fields inform zot's context and output budgets. They do not configure Ollama's context size or install the model.
+
+#### Use a remote Ollama server
+
+For a single run, pass the endpoint explicitly:
+
+```bash
+zot --provider ollama --model qwen3.5:4b --base-url http://ollama-server:11434/v1
+```
+
+For an endpoint behind authentication, use HTTPS and pass `--api-key` with the token. The built-in `ollama` provider uses that flag or a placeholder credential. It does not load a saved Ollama key from `auth.json`.
+
+To persist a remote endpoint, keep the `config.json` selection above and add `baseUrl` to the model in `$ZOT_HOME/models.json`:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "models": [
+        {
+          "id": "qwen3.5:4b",
+          "baseUrl": "http://ollama-server:11434/v1",
+          "contextWindow": 32768,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  }
+}
+```
+
+`--base-url` overrides the model's endpoint for that run. `baseUrl` is a `models.json` field, not a `config.json` field. Only connect to trusted servers and do not expose an unauthenticated Ollama endpoint to the public internet.
+
+#### Use the same model on two hosts
+
+Models are identified by the pair `(provider, model ID)`. Two entries with the same ID under `ollama` cannot represent independently selectable hosts. A different display `name` does not change that identity.
+
+Instead, define a custom provider for each host in `$ZOT_HOME/models.json`, keeping the actual Ollama model ID unchanged:
+
+```json
+{
+  "providers": {
+    "ollama-home": {
+      "baseUrl": "http://localhost:11434/v1",
+      "api": "openai",
+      "discover": true,
+      "models": [
+        { "id": "qwen3.5:4b", "contextWindow": 32768, "maxTokens": 8192 }
+      ]
+    },
+    "ollama-server": {
+      "baseUrl": "http://ollama-server:11434/v1",
+      "api": "openai",
+      "discover": true,
+      "models": [
+        { "id": "qwen3.5:4b", "contextWindow": 32768, "maxTokens": 8192 }
+      ]
+    }
+  }
+}
+```
+
+Select either host explicitly:
+
+```bash
+zot --provider ollama-home --model qwen3.5:4b
+zot --provider ollama-server --model qwen3.5:4b
+```
+
+To make the second host your default, use:
+
+```json
+{
+  "provider": "ollama-server",
+  "model": "qwen3.5:4b"
+}
+```
+
+Save that selection in `$ZOT_HOME/config.json`. Custom providers support stored or environment credentials when required. Discovery-enabled custom providers also work without a key for unauthenticated local servers.
+
+`discover` lists models already installed on each server. It does not download models into Ollama. Static `models` entries are optional when discovery is enabled, but let you override the discovered context and output defaults. See [Live model discovery for custom providers](#live-model-discovery-for-custom-providers) for refresh behavior and limitations.
+
+The built-in `ollama` provider currently has no dedicated `/login` endpoint-setup flow or automatic model discovery. Use explicit model IDs, static entries, or discovery-enabled custom providers as above. The `ollama` provider uses the OpenAI chat completions protocol internally, so it also works with OpenAI-compatible servers such as vLLM, LM Studio, and LocalAI.
 
 ### Local models with LM Studio
 
