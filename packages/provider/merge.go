@@ -28,6 +28,12 @@ func MergeCatalog(live []Model) []Model {
 	for _, l := range live {
 		k := byKey(l.Provider, l.ID)
 		if s, ok := staticIndex[k]; ok {
+			// Yolo-Auto reports authoritative, account-specific limits and
+			// capabilities. Its seed entries are only offline fallbacks.
+			if l.Provider == "yolo-auto" {
+				staticIndex[k] = l
+				continue
+			}
 			// Keep static prices & context window (live endpoint rarely
 			// exposes these), but mark as live and non-speculative.
 			s.Source = "live"
