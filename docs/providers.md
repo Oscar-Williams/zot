@@ -181,6 +181,7 @@ show instructions and should be configured with environment variables.
 | Hugging Face | `HF_TOKEN` | `huggingface` |
 | OpenRouter | `OPENROUTER_API_KEY` | `openrouter` |
 | Gondola | `GONDOLA_API_KEY` | `gondola` |
+| Yolo-Auto | `YOLO_AUTO_API_KEY` | `yolo-auto` |
 | Mistral | `MISTRAL_API_KEY` | `mistral` |
 | ZAI | `ZAI_API_KEY` | `zai` |
 | Xiaomi MiMo | `XIAOMI_API_KEY` | `xiaomi` |
@@ -200,6 +201,14 @@ show instructions and should be configured with environment variables.
 
 When Gondola credentials are available, zot refreshes its public text-model
 catalog in the background and adds the discovered models to `/model`.
+
+Yolo-Auto is an OpenAI-compatible gateway with `yolo` and `yolo-small` model
+aliases and flat-rate plans, so no per-token prices are shown. Those two aliases
+ship with the provider's documented conservative client limits. With
+`YOLO_AUTO_API_KEY` set, zot lists `/v1/models` in the background and adds every
+model the key can reach to `/model`, using the plan-bounded context window the
+endpoint reports; `yolo` is used when no model is given. Create a key at
+https://yolo-auto.com and see https://yolo-auto.com/docs for the API reference.
 
 Example:
 

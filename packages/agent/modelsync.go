@@ -261,6 +261,13 @@ func refreshModels() {
 				all = append(all, live...)
 			}
 		}
+		if cred, _, err := resolveCredentialForBackground(ctx, "yolo-auto"); err == nil {
+			// Yolo-Auto's /v1/models answers per key. Gate discovery on a
+			// credential so its models only fill the picker for key holders.
+			if live, err := provider.DiscoverYoloAuto(ctx, cred, ""); err == nil {
+				all = append(all, live...)
+			}
+		}
 	}
 
 	// Presets are per-account and require auth. Fetch them even when the

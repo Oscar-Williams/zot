@@ -41,6 +41,8 @@ func ProviderLabel(id string) string {
 		return "OpenRouter"
 	case "gondola":
 		return "Gondola"
+	case "yolo-auto":
+		return "Yolo-Auto"
 	case "mistral":
 		return "Mistral"
 	case "zai":

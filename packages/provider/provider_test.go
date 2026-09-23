@@ -511,6 +511,27 @@ func TestGondolaSeedCatalog(t *testing.T) {
 	}
 }
 
+func TestYoloAutoSeedCatalog(t *testing.T) {
+	// `yolo` is the model returned when no --model is given, so it has to
+	// resolve from the baked-in catalog without a live refresh.
+	yolo, err := FindModel("yolo-auto", "yolo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if yolo.ContextWindow != yoloAutoContextWindow || yolo.MaxOutput != yoloAutoMaxOutput ||
+		!yolo.Reasoning || yolo.BaseURL != yoloAutoDefaultBaseURL {
+		t.Fatalf("unexpected Yolo model: %+v", yolo)
+	}
+
+	small, err := FindModel("yolo-auto", "yolo-small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if small.BaseURL != yoloAutoDefaultBaseURL || small.Reasoning {
+		t.Fatalf("unexpected Yolo Small model: %+v", small)
+	}
+}
+
 func TestOpenAICompatAnthropicReasoningEffort(t *testing.T) {
 	c := NewOpenRouter("token", "").(*openaiClient)
 	wire, err := c.buildRequest(Request{

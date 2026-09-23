@@ -230,6 +230,14 @@ func looksLikeChatModel(id string) bool {
 const (
 	openrouterDefaultBaseURL = "https://openrouter.ai/api/v1"
 	gondolaDefaultBaseURL    = "https://api.gondola-ai.com/v1"
+	yoloAutoDefaultBaseURL   = "https://yolo-auto.com/v1"
+
+	// Yolo-Auto's documented conservative client limits. The provider is
+	// flat-rate with plan-bounded windows, so the window is a safe floor
+	// rather than a ceiling; /v1/models reports the per-key window and
+	// DiscoverYoloAuto prefers it.
+	yoloAutoContextWindow = 131072
+	yoloAutoMaxOutput     = 32768
 )
 
 // DiscoverOpenRouter lists models from OpenRouter's public /models
@@ -453,6 +461,70 @@ func DiscoverGondola(ctx context.Context, baseURL string) ([]Model, error) {
 			PriceCacheWrite:  d.Pricing.CacheWrite,
 			BaseURL:          baseURL,
 			Source:           "live",
+		})
+	}
+	return out, nil
+}
+
+// DiscoverYoloAuto lists the models a Yolo-Auto key can reach from the
+// provider's OpenAI-compatible /v1/models endpoint. Each entry reports the
+// plan-bounded context window and, when the alias supports them, the
+// thinking levels it accepts.
+func DiscoverYoloAuto(ctx context.Context, apiKey, baseURL string) ([]Model, error) {
+	if baseURL == "" {
+		baseURL = yoloAutoDefaultBaseURL
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey != "" {
+		req.Header.Set("authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("yolo-auto discover http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var page struct {
+		Data []struct {
+			ID            string   `json:"id"`
+			ContextLength int      `json:"context_length"`
+			MaxModelLen   int      `json:"max_model_len"`
+			Thinking      []string `json:"thinking"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil {
+		return nil, fmt.Errorf("yolo-auto discover parse: %w", err)
+	}
+	out := make([]Model, 0, len(page.Data))
+	for _, d := range page.Data {
+		id := strings.TrimSpace(d.ID)
+		if id == "" || strings.Contains(strings.ToLower(id), "embed") {
+			continue
+		}
+		contextWindow := d.ContextLength
+		if contextWindow == 0 {
+			contextWindow = d.MaxModelLen
+		}
+		if contextWindow == 0 {
+			contextWindow = yoloAutoContextWindow
+		}
+		out = append(out, Model{
+			Provider:      "yolo-auto",
+			ID:            id,
+			DisplayName:   id,
+			ContextWindow: contextWindow,
+			MaxOutput:     yoloAutoMaxOutput,
+			Reasoning:     len(d.Thinking) > 0,
+			BaseURL:       baseURL,
+			Source:        "live",
 		})
 	}
 	return out, nil
