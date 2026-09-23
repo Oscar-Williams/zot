@@ -28,6 +28,7 @@ func seedCopilotTestToken(t *testing.T, baseURL string) string {
 func TestCopilotWireProtocols(t *testing.T) {
 	for _, tc := range []struct{ model, path string }{
 		{"claude-sonnet-5", "/v1/messages"},
+		{"claude-opus-5.5", "/v1/messages"},
 		{"claude-haiku-4.5", "/v1/messages"},
 		{"gpt-5.4", "/responses"},
 		{"grok-4.6", "/responses"},
@@ -69,7 +70,7 @@ func TestCopilotWireProtocols(t *testing.T) {
 					if strings.Contains(string(body["system"]), "Claude Code") {
 						t.Error("injected Claude Code system identity")
 					}
-					if tc.model == "claude-sonnet-5" {
+					if tc.model == "claude-sonnet-5" || tc.model == "claude-opus-5.5" {
 						if string(body["thinking"]) != `{"type":"adaptive"}` {
 							t.Errorf("thinking = %s", body["thinking"])
 						}

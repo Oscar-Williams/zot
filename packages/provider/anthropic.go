@@ -21,7 +21,7 @@ const anthropicAPIVersion = "2023-06-01"
 // accepts the request; diverging from them causes 429 rate_limit_error
 // or 403 on the very first request.
 const (
-	claudeCodeVersion  = "2.1.258"
+	claudeCodeVersion  = "2.1.280"
 	claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
 )
 

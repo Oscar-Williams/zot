@@ -105,11 +105,11 @@ func TestAnthropicOAuthUsesCurrentClaudeCodeVersion(t *testing.T) {
 	defer srv.Close()
 
 	c := NewAnthropicOAuth("test-token", srv.URL)
-	_, err := c.Stream(context.Background(), Request{Model: "claude-fable-5-1"})
+	_, err := c.Stream(context.Background(), Request{Model: "claude-opus-5-5"})
 	if err == nil {
 		t.Fatal("expected test server error")
 	}
-	if want := "claude-cli/2.1.258"; userAgent != want {
+	if want := "claude-cli/2.1.280"; userAgent != want {
 		t.Fatalf("user-agent = %q, want %q", userAgent, want)
 	}
 }

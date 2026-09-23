@@ -303,6 +303,11 @@ var Catalog = []Model{
 		PriceInput: 5, PriceOutput: 25, PriceCacheRead: 0.5, PriceCacheWrite: 6.25,
 	},
 	{
+		Provider: "anthropic", ID: "claude-opus-5-5", DisplayName: "Claude Opus 5.5",
+		ContextWindow: 1000000, MaxOutput: 128000, Reasoning: true, AdaptiveThinking: true,
+		PriceInput: 4, PriceOutput: 20, PriceCacheRead: 0.2, PriceCacheWrite: 5,
+	},
+	{
 		Provider: "anthropic", ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6",
 		ContextWindow: 1000000, MaxOutput: 64000, Reasoning: true,
 		PriceInput: 3, PriceOutput: 15, PriceCacheRead: 0.3, PriceCacheWrite: 3.75,
