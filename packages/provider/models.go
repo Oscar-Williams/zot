@@ -272,6 +272,32 @@ var Catalog = []Model{
 		BaseURL: gondolaDefaultBaseURL,
 	},
 
+	// ---- Yolo-Auto ----
+	// Seed entries only: `qwen3.8-flash` is the free and paid default returned by
+	// defaultModelForProvider so it resolves offline. Yolo-Auto is an
+	// OpenAI-compatible gateway on flat-rate plans with no per-token
+	// billing, so no per-token prices are listed. The limits are the
+	// provider's documented conservative client settings; the full catalog,
+	// including each key's plan-bounded window, comes from /v1/models
+	// (DiscoverYoloAuto).
+	{
+		Provider: "yolo-auto", ID: "qwen3.8-flash", DisplayName: "Qwen3.8 Flash",
+		ContextWindow: yoloAutoContextWindow, MaxOutput: yoloAutoMaxOutput,
+		Reasoning: true,
+		BaseURL:   yoloAutoDefaultBaseURL,
+	},
+	{
+		Provider: "yolo-auto", ID: "yolo", DisplayName: "Yolo",
+		ContextWindow: yoloAutoContextWindow, MaxOutput: yoloAutoMaxOutput,
+		Reasoning: true,
+		BaseURL:   yoloAutoDefaultBaseURL,
+	},
+	{
+		Provider: "yolo-auto", ID: "yolo-small", DisplayName: "Yolo Small",
+		ContextWindow: yoloAutoContextWindow, MaxOutput: yoloAutoMaxOutput,
+		BaseURL: yoloAutoDefaultBaseURL,
+	},
+
 	// ---- Anthropic / newer families ----
 	{
 		Provider: "anthropic", ID: "claude-opus-4-5", DisplayName: "Claude Opus 4.5 (latest)",

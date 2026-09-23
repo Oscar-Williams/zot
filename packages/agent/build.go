@@ -193,6 +193,8 @@ func defaultModelForProvider(prov string) string {
 		return "anthropic/claude-sonnet-4.5"
 	case "gondola":
 		return "kimi-k3"
+	case "yolo-auto":
+		return "qwen3.8-flash"
 	case "mistral":
 		return "mistral-large-latest"
 	case "zai":
@@ -234,7 +236,7 @@ func defaultModelForProvider(prov string) string {
 var knownProviders = []string{
 	"anthropic", "openai", "openai-codex", "openai-responses", "kimi", "deepseek", "google", "ollama", provider.LlamaCPPProviderID, provider.LMStudioProviderID,
 	"moonshotai", "moonshotai-cn",
-	"cerebras", "groq", "xai", "together", "huggingface", "openrouter", "gondola",
+	"cerebras", "groq", "xai", "together", "huggingface", "openrouter", "gondola", "yolo-auto",
 	"mistral", "zai",
 	"xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp",
 	"minimax", "minimax-cn",
@@ -900,6 +902,8 @@ func (r Resolved) NewClient() provider.Client {
 		return wrap(provider.NewOpenRouter(r.Credential, r.BaseURL))
 	case "gondola":
 		return wrap(provider.NewGondola(r.Credential, r.BaseURL))
+	case "yolo-auto":
+		return wrap(provider.NewYoloAuto(r.Credential, r.BaseURL))
 	case "zai":
 		return wrap(provider.NewZAI(r.Credential, r.BaseURL))
 	case "xiaomi":
@@ -1209,6 +1213,8 @@ func envVarName(provider string) string {
 		return "OPENROUTER"
 	case "gondola":
 		return "GONDOLA"
+	case "yolo-auto":
+		return "YOLO_AUTO"
 	case "mistral":
 		return "MISTRAL"
 	case "zai":

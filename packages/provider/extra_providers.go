@@ -122,6 +122,12 @@ func NewGondola(apiKey, baseURL string) Client {
 	return NewOpenAICompat("gondola", apiKey, baseURL, gondolaDefaultBaseURL)
 }
 
+// NewYoloAuto: Yolo-Auto, an OpenAI Chat Completions-compatible gateway
+// addressed by the `yolo` and `yolo-small` model aliases.
+func NewYoloAuto(apiKey, baseURL string) Client {
+	return NewOpenAICompat("yolo-auto", apiKey, baseURL, yoloAutoDefaultBaseURL)
+}
+
 // NewOpenCode is the opencode.ai Zen endpoint. Mixed APIs upstream; this
 // constructor wires the openai-completions flavor only. Models that need
 // the anthropic-messages flavor under the same provider should be built

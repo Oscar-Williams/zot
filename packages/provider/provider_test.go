@@ -511,6 +511,34 @@ func TestGondolaSeedCatalog(t *testing.T) {
 	}
 }
 
+func TestYoloAutoSeedCatalog(t *testing.T) {
+	// The free-plan default must resolve without a live refresh.
+	flash, err := FindModel("yolo-auto", "qwen3.8-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flash.ContextWindow != yoloAutoContextWindow || flash.MaxOutput != yoloAutoMaxOutput ||
+		!flash.Reasoning || flash.BaseURL != yoloAutoDefaultBaseURL {
+		t.Fatalf("unexpected Qwen model: %+v", flash)
+	}
+	yolo, err := FindModel("yolo-auto", "yolo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if yolo.ContextWindow != yoloAutoContextWindow || yolo.MaxOutput != yoloAutoMaxOutput ||
+		!yolo.Reasoning || yolo.BaseURL != yoloAutoDefaultBaseURL {
+		t.Fatalf("unexpected Yolo model: %+v", yolo)
+	}
+
+	small, err := FindModel("yolo-auto", "yolo-small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if small.BaseURL != yoloAutoDefaultBaseURL || small.Reasoning {
+		t.Fatalf("unexpected Yolo Small model: %+v", small)
+	}
+}
+
 func TestOpenAICompatAnthropicReasoningEffort(t *testing.T) {
 	c := NewOpenRouter("token", "").(*openaiClient)
 	wire, err := c.buildRequest(Request{
