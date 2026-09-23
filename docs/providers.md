@@ -202,13 +202,20 @@ show instructions and should be configured with environment variables.
 When Gondola credentials are available, zot refreshes its public text-model
 catalog in the background and adds the discovered models to `/model`.
 
-Yolo-Auto is an OpenAI-compatible gateway with `yolo` and `yolo-small` model
-aliases and flat-rate plans, so no per-token prices are shown. Those two aliases
-ship with the provider's documented conservative client limits. With
-`YOLO_AUTO_API_KEY` set, zot lists `/v1/models` in the background and adds every
-model the key can reach to `/model`, using the plan-bounded context window the
-endpoint reports; `yolo` is used when no model is given. Create a key at
-https://yolo-auto.com and see https://yolo-auto.com/docs for the API reference.
+Yolo-Auto is an OpenAI-compatible gateway with flat-rate plans, so no per-token
+prices are shown. The default model, `qwen3.8-flash`, is available on free and
+paid plans. The optional `yolo` route requires a paid plan. These models and
+`yolo-small` ship with conservative client limits.
+
+With `YOLO_AUTO_API_KEY` set or a key saved through `/login`, zot lists
+`/v1/models` in the background on each catalog refresh, independently of the
+six-hour public catalog cache. Discovered models use the key's plan-bounded
+context windows and advertised reasoning levels, replacing the seed metadata.
+The last discovered metadata is cached for startup resolution until the
+background refresh completes. If discovery fails, zot falls back to the seed
+models and conservative limits instead of retaining the previous key's live
+metadata. Create a key at https://yolo-auto.com and see
+https://yolo-auto.com/docs for the API reference.
 
 Example:
 

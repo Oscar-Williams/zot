@@ -517,17 +517,34 @@ func DiscoverYoloAuto(ctx context.Context, apiKey, baseURL string) ([]Model, err
 			contextWindow = yoloAutoContextWindow
 		}
 		out = append(out, Model{
-			Provider:      "yolo-auto",
-			ID:            id,
-			DisplayName:   id,
-			ContextWindow: contextWindow,
-			MaxOutput:     yoloAutoMaxOutput,
-			Reasoning:     len(d.Thinking) > 0,
-			BaseURL:       baseURL,
-			Source:        "live",
+			Provider:          "yolo-auto",
+			ID:                id,
+			DisplayName:       id,
+			ContextWindow:     contextWindow,
+			MaxOutput:         yoloAutoMaxOutput,
+			Reasoning:         len(d.Thinking) > 0,
+			ReasoningLevelMap: yoloAutoReasoningLevels(d.Thinking),
+			BaseURL:           baseURL,
+			Source:            "live",
 		})
 	}
 	return out, nil
+}
+
+// yoloAutoReasoningLevels restricts the generic chat-completions defaults to
+// the endpoint's advertised efforts, including minimal and xhigh when offered.
+func yoloAutoReasoningLevels(thinking []string) map[string]string {
+	levels := make(map[string]string)
+	for _, level := range reasoningLevelOrder[1:] {
+		levels[level] = ""
+	}
+	for _, effort := range thinking {
+		level := NormalizeReasoning(effort)
+		if _, known := levels[level]; known {
+			levels[level] = level
+		}
+	}
+	return levels
 }
 
 // perMillionTokens converts a per-token USD price string to USD per 1M

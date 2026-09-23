@@ -275,6 +275,10 @@ func (c *openaiClient) buildRequest(req Request) (*oaiRequest, error) {
 			// values and take precedence over conservative protocol defaults.
 			effort = reasoning
 		}
+		if c.Name() == "yolo-auto" && effort == "minimum" {
+			// The advertised wire value is minimal, not zot's UI spelling.
+			effort = "minimal"
+		}
 		if effort != "" {
 			out.ReasoningEffort = effort
 		}

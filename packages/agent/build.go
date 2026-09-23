@@ -194,7 +194,7 @@ func defaultModelForProvider(prov string) string {
 	case "gondola":
 		return "kimi-k3"
 	case "yolo-auto":
-		return "yolo"
+		return "qwen3.8-flash"
 	case "mistral":
 		return "mistral-large-latest"
 	case "zai":

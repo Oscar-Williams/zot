@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -62,6 +63,52 @@ func TestDiscoverYoloAutoFallsBackToDocumentedLimits(t *testing.T) {
 	}
 	if len(models) != 1 || models[0].ContextWindow != yoloAutoContextWindow {
 		t.Fatalf("models = %+v", models)
+	}
+}
+
+func TestYoloAutoDiscoveryReachesActiveCatalogAndWire(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"data":[
+			{"id":"yolo","context_length":262144,"thinking":["minimal","low","medium","high","xhigh"]},
+			{"id":"qwen3.8-flash","context_length":65536,"thinking":["high"]},
+			{"id":"yolo-small","max_model_len":65536,"thinking":null}
+		]}`)
+	}))
+	defer srv.Close()
+	models, err := DiscoverYoloAuto(context.Background(), "test", srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetLiveModels(models)
+	t.Cleanup(func() { SetLiveModels(nil) })
+	for _, discovered := range models {
+		active, err := FindModel("yolo-auto", discovered.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if active.ContextWindow != discovered.ContextWindow || active.Reasoning != discovered.Reasoning || active.BaseURL != srv.URL {
+			t.Errorf("active metadata does not match discovery: %+v", active)
+		}
+		if active.ID == "yolo" && !slices.Equal(AvailableReasoningLevels(active), []string{"", "minimum", "low", "medium", "high", "xhigh"}) {
+			t.Errorf("available levels = %q", AvailableReasoningLevels(active))
+		}
+	}
+	client := NewYoloAuto("test", srv.URL).(*openaiClient)
+	for _, tc := range []struct{ model, level, want string }{
+		{"yolo", "minimum", "minimal"},
+		{"yolo", "xhigh", "xhigh"},
+		{"yolo", "max", "xhigh"},
+		{"yolo", "off", ""},
+		{"qwen3.8-flash", "low", "high"},
+		{"yolo-small", "high", ""},
+	} {
+		wire, err := client.buildRequest(Request{Model: tc.model, Reasoning: tc.level})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if wire.ReasoningEffort != tc.want {
+			t.Errorf("%s/%s effort = %q, want %q", tc.model, tc.level, wire.ReasoningEffort, tc.want)
+		}
 	}
 }
 

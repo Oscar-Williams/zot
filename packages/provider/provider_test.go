@@ -512,8 +512,15 @@ func TestGondolaSeedCatalog(t *testing.T) {
 }
 
 func TestYoloAutoSeedCatalog(t *testing.T) {
-	// `yolo` is the model returned when no --model is given, so it has to
-	// resolve from the baked-in catalog without a live refresh.
+	// The free-plan default must resolve without a live refresh.
+	flash, err := FindModel("yolo-auto", "qwen3.8-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flash.ContextWindow != yoloAutoContextWindow || flash.MaxOutput != yoloAutoMaxOutput ||
+		!flash.Reasoning || flash.BaseURL != yoloAutoDefaultBaseURL {
+		t.Fatalf("unexpected Qwen model: %+v", flash)
+	}
 	yolo, err := FindModel("yolo-auto", "yolo")
 	if err != nil {
 		t.Fatal(err)

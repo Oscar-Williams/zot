@@ -206,9 +206,17 @@ func refreshModels() {
 	cached, _ := provider.LoadCache(ModelCachePath())
 	cacheFresh := cached.IsFresh()
 
+	// Refresh per-key limits even while the public catalog cache is fresh.
+	// Use a separate deadline so slow public discovery cannot starve this call.
+	yoloCtx, yoloCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	var yoloModels []provider.Model
+	if cred, _, err := resolveCredentialForBackground(yoloCtx, "yolo-auto"); err == nil {
+		yoloModels, _ = provider.DiscoverYoloAuto(yoloCtx, cred, "")
+	}
+	yoloCancel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-
 	var all []provider.Model
 	var openrouterCred string
 	var haveOpenRouter bool
@@ -261,13 +269,6 @@ func refreshModels() {
 				all = append(all, live...)
 			}
 		}
-		if cred, _, err := resolveCredentialForBackground(ctx, "yolo-auto"); err == nil {
-			// Yolo-Auto's /v1/models answers per key. Gate discovery on a
-			// credential so its models only fill the picker for key holders.
-			if live, err := provider.DiscoverYoloAuto(ctx, cred, ""); err == nil {
-				all = append(all, live...)
-			}
-		}
 	}
 
 	// Presets are per-account and require auth. Fetch them even when the
@@ -279,16 +280,32 @@ func refreshModels() {
 		}
 	}
 
-	if len(all) == 0 {
-		return
-	}
+	// Do not carry forward another key's models or limits, even on failure.
+	all = mergeYoloAutoModels(all, yoloModels)
 	provider.SetLiveModels(all)
 	// Keep explicit metadata overrides above refreshed server catalogs.
 	LoadUserModels()
+	if len(all) == 0 {
+		// Clear old account entries without marking an empty catalog fresh.
+		_ = provider.SaveCache(ModelCachePath(), provider.ModelCache{})
+		return
+	}
 	_ = provider.SaveCache(ModelCachePath(), provider.ModelCache{
 		FetchedAt: modelCacheFetchedAt(cached, !cacheFresh, time.Now().UTC()),
 		Models:    all,
 	})
+}
+
+// mergeYoloAutoModels replaces account metadata without disturbing the public
+// catalog. Cached entries aid offline resolution, but never suppress discovery.
+func mergeYoloAutoModels(existing, live []provider.Model) []provider.Model {
+	out := make([]provider.Model, 0, len(existing)+len(live))
+	for _, model := range existing {
+		if model.Provider != "yolo-auto" {
+			out = append(out, model)
+		}
+	}
+	return append(out, live...)
 }
 
 func modelCacheFetchedAt(cached provider.ModelCache, catalogRefreshed bool, now time.Time) time.Time {
