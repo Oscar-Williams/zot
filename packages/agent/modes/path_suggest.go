@@ -40,7 +40,11 @@ func (p *pathChoicePopup) Active(input string) bool {
 		}
 		start--
 	}
-	return start == p.completion.tokenStart && input[start:] == p.completion.token
+	if start != p.completion.tokenStart || input[start:] != p.completion.token {
+		p.Reset()
+		return false
+	}
+	return true
 }
 
 func (p *pathChoicePopup) Up() {

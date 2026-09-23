@@ -2622,7 +2622,7 @@ func (i *Interactive) handleKey(ctx context.Context, k tui.Key) (done bool) {
 		// notes should dismiss on Esc before we even consider the
 		// turn. Without these guards, a casual Esc press after
 		// running /help on a busy turn rips the turn away.
-		if i.suggest.Active(i.ed.Value()) || i.fileSuggest.Active(i.ed.Value()) {
+		if i.suggest.Active(i.ed.Value()) || i.fileSuggest.Active(i.ed.Value()) || i.pathSuggest.Active(i.ed.Value()) {
 			break
 		}
 		i.mu.Lock()
