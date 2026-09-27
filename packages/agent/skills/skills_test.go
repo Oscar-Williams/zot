@@ -147,6 +147,103 @@ func TestDiscoverSourcesFollowsSymlinkedRoot(t *testing.T) {
 	}
 }
 
+func TestDiscoverSourcesFollowsSymlinkedSkillDir(t *testing.T) {
+	shared := t.TempDir()
+	writeSkill(t, filepath.Join(shared, "tdd"), "name: tdd", "shared body")
+	root := t.TempDir()
+	linkDir(t, filepath.Join(shared, "tdd"), filepath.Join(root, "tdd"))
+
+	got, errs := DiscoverSources([]Source{{Root: root, Label: "global"}}, false)
+	if len(errs) != 0 || len(got) != 1 {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+	if got[0].Name != "tdd" || got[0].Body != "shared body" || got[0].Source != "global" {
+		t.Errorf("skill = %#v", got[0])
+	}
+	if want := filepath.Join(root, "tdd", "SKILL.md"); got[0].Path != want {
+		t.Errorf("path = %q, want the link location %q", got[0].Path, want)
+	}
+}
+
+func TestDiscoverSourcesFollowsSymlinkedCategoryDir(t *testing.T) {
+	shared := t.TempDir()
+	writeSkill(t, filepath.Join(shared, "code-review"), "name: code-review", "named body")
+	writeSkill(t, filepath.Join(shared, "prototype"), "", "unnamed body")
+	root := t.TempDir()
+	linkDir(t, shared, filepath.Join(root, "engineering"))
+
+	got, errs := DiscoverSources([]Source{{Root: root}}, false)
+	if len(errs) != 0 || len(got) != 2 {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+	if got[0].Name != "code-review" || got[1].Name != "engineering-prototype" {
+		t.Errorf("names = %q, %q", got[0].Name, got[1].Name)
+	}
+}
+
+func TestDiscoverSourcesSymlinkCycleTerminates(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, filepath.Join(root, "review"), "name: review", "body")
+	linkDir(t, root, filepath.Join(root, "loop"))
+	linkDir(t, root, filepath.Join(root, "alias"))
+
+	got, errs := DiscoverSources([]Source{{Root: root}}, false)
+	if len(errs) != 0 || len(got) != 1 || got[0].Name != "review" {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+}
+
+func TestDiscoverSourcesIgnoresDanglingSymlink(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, filepath.Join(root, "review"), "name: review", "body")
+	missing := filepath.Join(t.TempDir(), "gone")
+	linkDir(t, missing, filepath.Join(root, "gone"))
+
+	got, errs := DiscoverSources([]Source{{Root: root}}, false)
+	if len(errs) != 0 || len(got) != 1 || got[0].Name != "review" {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+}
+
+func TestDiscoverSourcesWalksLinkedDirOnce(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "shared")
+	writeSkill(t, real, "name: review", "body")
+	linkDir(t, real, filepath.Join(root, "alias"))
+
+	got, errs := DiscoverSources([]Source{{Root: root}}, false)
+	if len(errs) != 0 || len(got) != 1 {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+	if want := filepath.Join(root, "alias", "SKILL.md"); got[0].Path != want {
+		t.Errorf("path = %q, want %q", got[0].Path, want)
+	}
+}
+
+func writeSkill(t *testing.T, dir, front, body string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	frontmatter := "---\ndescription: test\n---\n"
+	if front != "" {
+		frontmatter = "---\n" + front + "\ndescription: test\n---\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(frontmatter+body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func linkDir(t *testing.T, target, path string) {
+	t.Helper()
+	if err := os.Symlink(target, path); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+}
+
 func TestDiscoverSourcesRecursiveAndPrefixed(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "Something", "Writing Git Commits")

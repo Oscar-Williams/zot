@@ -74,6 +74,10 @@ Explicit `--ext` bundles take precedence over environment, project, global, and
 compatibility sources. Duplicate names from different files keep the
 higher-precedence file and report a diagnostic. Rediscovering the same file
 under the same skill name (including through a symlink) is silently ignored.
+Skill directories may themselves be symlinks, so a checkout can be kept in one
+place and linked into a skills directory. Link cycles are ignored, a directory
+reached twice through links is scanned once, and a link that points at nothing
+is skipped.
 This includes overlapping project and global locations when running from your
 home directory. `--no-ext` omits implicit extension bundles;
 `--no-ext --ext PATH` loads only the explicitly named bundle. `--no-skill`
