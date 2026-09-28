@@ -33,6 +33,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -248,7 +249,7 @@ func scanSource(source Source) ([]*Skill, []error) {
 				if statErr != nil {
 					// Dangling and cyclic links are not skills. Anything
 					// else (permissions, I/O) is worth reporting.
-					if !errors.Is(statErr, fs.ErrNotExist) && !errors.Is(statErr, syscall.ELOOP) {
+					if !errors.Is(statErr, fs.ErrNotExist) && !symlinkLoopError(statErr) {
 						errs = append(errs, fmt.Errorf("%s: %w", path, statErr))
 					}
 					continue
@@ -285,6 +286,13 @@ func scanSource(source Source) ([]*Skill, []error) {
 		walk(linkedDirs[i])
 	}
 	return out, errs
+}
+
+func symlinkLoopError(err error) bool {
+	// Windows reports cyclic links as ERROR_CANT_RESOLVE_FILENAME (1921),
+	// rather than ELOOP. syscall does not export a name for this error.
+	return errors.Is(err, syscall.ELOOP) ||
+		(runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1921)))
 }
 
 // deriveName builds a skill name for a SKILL.md file that carries no

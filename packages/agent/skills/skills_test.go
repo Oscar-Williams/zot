@@ -1,10 +1,12 @@
 package skills
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -243,6 +245,18 @@ func TestDiscoverSourcesIgnoresCyclicSymlink(t *testing.T) {
 	got, errs := DiscoverSources([]Source{{Root: root}}, false)
 	if len(errs) != 0 || len(got) != 1 || got[0].Name != "review" {
 		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+}
+
+func TestSymlinkLoopError(t *testing.T) {
+	if !symlinkLoopError(fmt.Errorf("stat: %w", syscall.ELOOP)) {
+		t.Error("ELOOP should be ignored")
+	}
+	if runtime.GOOS == "windows" && !symlinkLoopError(fmt.Errorf("stat: %w", syscall.Errno(1921))) {
+		t.Error("Windows cyclic-link error should be ignored")
+	}
+	if symlinkLoopError(fmt.Errorf("stat: %w", os.ErrPermission)) {
+		t.Error("permission errors must still be reported")
 	}
 }
 
