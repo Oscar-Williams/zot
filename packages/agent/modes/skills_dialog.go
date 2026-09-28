@@ -18,7 +18,8 @@ type skillsDialog struct {
 	skills  []*skills.Skill
 	cursor  int
 	viewing *skills.Skill // when non-nil, render the body instead of the list
-	scroll  int           // body view scroll offset (in lines)
+	scroll  int           // body view scroll offset (in wrapped lines)
+	maxRows int           // scrollable rows in the body view, 0 uses the default
 }
 
 func newSkillsDialog() *skillsDialog { return &skillsDialog{} }
@@ -101,11 +102,11 @@ func (d *skillsDialog) Render(th tui.Theme, width int) []string {
 
 	out := []string{frameHeader(th, "skills (enter to view, esc to close)", width)}
 	if d.canPin {
-		out = append(out, "  "+th.FG256(th.Muted, "p: project pin, g: global pin (toggle)"))
+		out = append(out, wrapDialogMutedRows(th, "p: project pin, g: global pin (toggle)", width)...)
 	}
 	if len(d.skills) == 0 {
-		out = append(out, "  "+th.FG256(th.Muted, "no user skills loaded"))
-		out = append(out, "  "+th.FG256(th.Muted, "add SKILL.md under $ZOT_HOME/skills, .zot/skills, .claude/skills, or .agents/skills"))
+		out = append(out, wrapDialogMutedRows(th, "no user skills loaded", width)...)
+		out = append(out, wrapDialogMutedRows(th, "add SKILL.md under $ZOT_HOME/skills, .zot/skills, .claude/skills, or .agents/skills", width)...)
 		out = append(out, frameRule(th, width))
 		return out
 	}
@@ -143,41 +144,60 @@ func (d *skillsDialog) Render(th tui.Theme, width int) []string {
 	return out
 }
 
+// fitBodyRows reserves the fixed dialog chrome and the rows outside the dialog.
+// The metadata scrolls with the body so even a long path cannot hide its start.
+func (d *skillsDialog) fitBodyRows(terminalRows, otherRows int) {
+	// Header, rule, scroll hint, two frame gaps, and the renderer's bottom margin.
+	d.maxRows = max(1, min(16, terminalRows-otherRows-6))
+}
+
 func (d *skillsDialog) renderBody(th tui.Theme, width int) []string {
 	s := d.viewing
-	out := []string{
-		frameHeader(th, "skill: "+s.Name+"  (esc / enter to go back)", width),
-		"  " + th.FG256(th.Muted, s.Description),
-		"  " + th.FG256(th.Muted, "source: "+s.Source+"  ("+s.Path+")"),
-		"",
-	}
+	out := []string{frameHeader(th, "skill: "+s.Name+"  (esc / enter to go back)", width)}
+	content := wrapDialogMutedRows(th, s.Description, width)
+	content = append(content, wrapDialogMutedRows(th, "source: "+s.Source+"  ("+s.Path+")", width)...)
+	content = append(content, "")
 
-	rendered := tui.RenderMarkdown(s.Body, th, width-4)
-	bodyLines := strings.Split(rendered, "\n")
-	for i, l := range bodyLines {
-		if len(l) > 0 && l[0] == tui.FlushLeftSentinel {
-			bodyLines[i] = l[1:]
-		}
-	}
+	// Fold the markdown body to the dialog width. The renderer
+	// hard-truncates over-wide rows, and skill bodies are prose that
+	// routinely exceeds one row, so an unfolded body silently loses
+	// everything past the right edge.
+	content = append(content, renderDialogMarkdownRows(s.Body, th, width)...)
 
-	const maxRows = 16
-	if d.scroll > len(bodyLines)-1 {
-		d.scroll = len(bodyLines) - 1
+	maxRows := d.maxRows
+	if maxRows <= 0 || maxRows > 16 {
+		maxRows = 16
+	}
+	if d.scroll > len(content)-1 {
+		d.scroll = len(content) - 1
 	}
 	if d.scroll < 0 {
 		d.scroll = 0
 	}
 	end := d.scroll + maxRows
-	if end > len(bodyLines) {
-		end = len(bodyLines)
+	if end > len(content) {
+		end = len(content)
 	}
-	for _, line := range bodyLines[d.scroll:end] {
-		out = append(out, "    "+line)
-	}
-	if end < len(bodyLines) {
-		out = append(out, "  "+th.FG256(th.Muted, fmt.Sprintf("\u2193 %d more lines (down/pgdn)", len(bodyLines)-end)))
+	out = append(out, content[d.scroll:end]...)
+	if end < len(content) {
+		out = append(out, "  "+th.FG256(th.Muted, fmt.Sprintf("\u2193 %d more lines (down/pgdn)", len(content)-end)))
 	}
 	out = append(out, frameRule(th, width))
+	return out
+}
+
+// wrapDialogMutedRows folds one muted dialog line to the width available
+// after the dialog's 2-space indent and returns ready-to-print rows.
+func wrapDialogMutedRows(th tui.Theme, text string, width int) []string {
+	inner := width - 2
+	if inner < 1 {
+		inner = 1
+	}
+	wrapped := tui.WrapANSILine(text, inner)
+	out := make([]string, 0, len(wrapped))
+	for _, line := range wrapped {
+		out = append(out, "  "+th.FG256(th.Muted, line))
+	}
 	return out
 }
 

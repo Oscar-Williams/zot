@@ -91,7 +91,9 @@ on macOS, `~/.local/state/zot` on Linux, or `%LOCALAPPDATA%\zot` on Windows.
 
 In zot, run `/skills`. A picker lists every discovered skill with its
 description and source path. Press enter on a row to view the full
-body inline. Press esc to go back.
+body inline. Long descriptions, source paths, and body lines wrap to fit the
+terminal. Use up/down or pgup/pgdn to scroll through the preview, including its
+metadata on short terminals. Press esc to go back.
 
 ## Pinning skills
 
