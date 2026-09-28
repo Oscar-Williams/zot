@@ -569,6 +569,46 @@ func TestCustomProviderUsesOpenAIResponsesAPI(t *testing.T) {
 	}
 }
 
+func TestCustomProviderKeylessOpenAICompatOmitsAuthorization(t *testing.T) {
+	t.Setenv("ZOT_HOME", t.TempDir())
+	authorization := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization <- r.Header.Get("Authorization")
+		if got := r.Header.Get("Authorization"); got != "" {
+			http.Error(w, `{"error":"unexpected authorization"}`, http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	loadTestModelsJSON(t, `{"providers":{"unsloth":{"baseUrl":"`+srv.URL+`/v1","api":"openai","models":[{"id":"qista"}]}}}`)
+	r, err := Resolve(Args{Provider: "unsloth", Model: "qista", NoSkill: true}, true)
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if r.Credential != "" {
+		t.Fatalf("credential = %q, want empty for a keyless endpoint", r.Credential)
+	}
+	if !r.HasCredential() {
+		t.Fatal("keyless custom endpoint should still be usable")
+	}
+
+	events, err := r.NewClient().Stream(context.Background(), provider.Request{
+		Model:    "qista",
+		Messages: []provider.Message{{Role: provider.RoleUser, Content: []provider.Content{provider.TextBlock{Text: "hello"}}}},
+	})
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	for range events {
+	}
+	if got := <-authorization; got != "" {
+		t.Fatalf("Authorization = %q, want header omitted", got)
+	}
+}
+
 func TestResolveCustomProviderInsecureFromModelsJSONBaseURL(t *testing.T) {
 	t.Setenv("ZOT_HOME", t.TempDir())
 	t.Setenv("LOCAL_PROXY_API_KEY", "test-key")
