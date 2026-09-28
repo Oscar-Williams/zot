@@ -68,6 +68,49 @@ func TestSkillsDialogBodyWrapsLongLines(t *testing.T) {
 	}
 }
 
+func TestSkillsDialogShortTerminalKeepsMetadataAndBodyReachable(t *testing.T) {
+	const width, height, otherRows = 44, 24, 7
+	d := openSkillBody(t, &skills.Skill{
+		Name:        "wide",
+		Description: strings.Repeat("description that wraps repeatedly ", 18),
+		Source:      "global",
+		Path:        "/long/skill/path/SKILL.md",
+		Body:        "first body line\nsecond body line\nlast body line",
+	})
+	d.fitBodyRows(height, otherRows)
+	render := func() string {
+		rows := padDialogFrame(d.Render(tui.Theme{}, width))
+		// Account for the editor/status band and the renderer's bottom margin.
+		if len(rows)+otherRows+1 > height {
+			t.Fatalf("dialog has %d rows with %d reserved, terminal has %d", len(rows), otherRows+1, height)
+		}
+		assertRowsFitWidth(t, rows, width)
+		return stripANSIBytes(strings.Join(rows, "\n"))
+	}
+	if got := render(); !strings.Contains(got, "description that wraps") {
+		t.Fatalf("metadata start not visible: %s", got)
+	}
+	foundPath, foundBody := false, false
+	for range 40 {
+		visible := render()
+		foundPath = foundPath || strings.Contains(visible, "/long/skill/path/SKILL.md")
+		foundBody = foundBody || strings.Contains(visible, "first body line")
+		if foundPath && foundBody {
+			break
+		}
+		d.HandleKey(tui.Key{Kind: tui.KeyDown})
+	}
+	if !foundPath || !foundBody {
+		t.Fatalf("source and first body line must both be reachable, source=%t body=%t", foundPath, foundBody)
+	}
+	for range 40 {
+		d.HandleKey(tui.Key{Kind: tui.KeyUp})
+	}
+	if got := render(); !strings.Contains(got, "description that wraps") {
+		t.Fatalf("metadata start unreachable after scrolling: %s", got)
+	}
+}
+
 func TestSkillsDialogWrapsHintLines(t *testing.T) {
 	const width = 44
 	d := newSkillsDialog()

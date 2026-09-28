@@ -1668,6 +1668,16 @@ func (i *Interactive) redraw() {
 	}
 
 	_, rows := i.cfg.Terminal.Size()
+	if i.skillsDialog.Active() && i.skillsDialog.viewing != nil {
+		// Reflow after the editor, status, and queue are known so the
+		// scrollable skill content fits above them even on short terminals.
+		i.skillsDialog.fitBodyRows(rows, len(bottom)-len(dialog))
+		fitted := padDialogFrame(i.skillsDialog.Render(i.cfg.Theme, cols))
+		reflowed := make([]string, 0, len(bottom)-len(dialog)+len(fitted))
+		reflowed = append(reflowed, bottom[:1]...)
+		reflowed = append(reflowed, fitted...)
+		bottom = append(reflowed, bottom[1+len(dialog):]...)
+	}
 	chatRows := rows - len(bottom)
 	if chatRows < 1 {
 		chatRows = 1

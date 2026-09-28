@@ -18,7 +18,8 @@ type skillsDialog struct {
 	skills  []*skills.Skill
 	cursor  int
 	viewing *skills.Skill // when non-nil, render the body instead of the list
-	scroll  int           // body view scroll offset (in lines)
+	scroll  int           // body view scroll offset (in wrapped lines)
+	maxRows int           // scrollable rows in the body view, 0 uses the default
 }
 
 func newSkillsDialog() *skillsDialog { return &skillsDialog{} }
@@ -143,35 +144,43 @@ func (d *skillsDialog) Render(th tui.Theme, width int) []string {
 	return out
 }
 
+// fitBodyRows reserves the fixed dialog chrome and the rows outside the dialog.
+// The metadata scrolls with the body so even a long path cannot hide its start.
+func (d *skillsDialog) fitBodyRows(terminalRows, otherRows int) {
+	// Header, rule, scroll hint, two frame gaps, and the renderer's bottom margin.
+	d.maxRows = max(1, min(16, terminalRows-otherRows-6))
+}
+
 func (d *skillsDialog) renderBody(th tui.Theme, width int) []string {
 	s := d.viewing
 	out := []string{frameHeader(th, "skill: "+s.Name+"  (esc / enter to go back)", width)}
-	out = append(out, wrapDialogMutedRows(th, s.Description, width)...)
-	out = append(out, wrapDialogMutedRows(th, "source: "+s.Source+"  ("+s.Path+")", width)...)
-	out = append(out, "")
+	content := wrapDialogMutedRows(th, s.Description, width)
+	content = append(content, wrapDialogMutedRows(th, "source: "+s.Source+"  ("+s.Path+")", width)...)
+	content = append(content, "")
 
 	// Fold the markdown body to the dialog width. The renderer
 	// hard-truncates over-wide rows, and skill bodies are prose that
 	// routinely exceeds one row, so an unfolded body silently loses
 	// everything past the right edge.
-	bodyLines := renderDialogMarkdownRows(s.Body, th, width)
+	content = append(content, renderDialogMarkdownRows(s.Body, th, width)...)
 
-	const maxRows = 16
-	if d.scroll > len(bodyLines)-1 {
-		d.scroll = len(bodyLines) - 1
+	maxRows := d.maxRows
+	if maxRows <= 0 || maxRows > 16 {
+		maxRows = 16
+	}
+	if d.scroll > len(content)-1 {
+		d.scroll = len(content) - 1
 	}
 	if d.scroll < 0 {
 		d.scroll = 0
 	}
 	end := d.scroll + maxRows
-	if end > len(bodyLines) {
-		end = len(bodyLines)
+	if end > len(content) {
+		end = len(content)
 	}
-	// renderDialogMarkdownRows already prefixes each row with the
-	// dialog's text indent.
-	out = append(out, bodyLines[d.scroll:end]...)
-	if end < len(bodyLines) {
-		out = append(out, "  "+th.FG256(th.Muted, fmt.Sprintf("\u2193 %d more lines (down/pgdn)", len(bodyLines)-end)))
+	out = append(out, content[d.scroll:end]...)
+	if end < len(content) {
+		out = append(out, "  "+th.FG256(th.Muted, fmt.Sprintf("\u2193 %d more lines (down/pgdn)", len(content)-end)))
 	}
 	out = append(out, frameRule(th, width))
 	return out
