@@ -367,7 +367,12 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 		accountID string
 		credErr   error
 	)
-	if args.inheritedCredential != "" {
+	customCfg, customProvider := provider.CustomProviders()[provName]
+	keylessCustom := customProvider && !isBuiltinProvider(provName) && customCfg.NoAuth
+	if keylessCustom {
+		// Explicit keyless configuration takes precedence over CLI, env, and
+		// stored credentials. Never execute a stored API key command.
+	} else if args.inheritedCredential != "" {
 		cred = args.inheritedCredential
 		method = args.inheritedAuthMethod
 		accountID = args.inheritedAccountID
@@ -380,7 +385,7 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 
 	// Persist --api-key for custom providers so subsequent runs don't
 	// need to pass it again.
-	if !isBuiltinProvider(provName) && args.APIKey != "" {
+	if !isBuiltinProvider(provName) && !keylessCustom && args.APIKey != "" {
 		if store := AuthStoreFor(); store != nil {
 			_ = store.SetAPIKey(provName, args.APIKey)
 		}
@@ -599,7 +604,12 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 	// If the model has a base URL, credentials are optional (local
 	// models like ollama don't need real API keys).
 	credentialOptional := false
-	if resolvedModel.BaseURL != "" && credErr != nil {
+	if keylessCustom {
+		if args.BaseURL == "" {
+			return Resolved{}, fmt.Errorf("custom provider %q has auth none but no base URL", provName)
+		}
+		credentialOptional = true
+	} else if resolvedModel.BaseURL != "" && credErr != nil {
 		if _, isCustom := provider.CustomProviders()[provName]; isCustom {
 			// A custom endpoint may be configured for keyless access. Keep the
 			// credential empty so the provider does not send a placeholder token.
