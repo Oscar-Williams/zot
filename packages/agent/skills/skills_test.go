@@ -160,7 +160,7 @@ func TestDiscoverSourcesFollowsSymlinkedSkillDir(t *testing.T) {
 	if got[0].Name != "tdd" || got[0].Body != "shared body" || got[0].Source != "global" {
 		t.Errorf("skill = %#v", got[0])
 	}
-	if want := filepath.Join(root, "tdd", "SKILL.md"); got[0].Path != want {
+	if want := filepath.Join(mustEvalSymlinks(t, root), "tdd", "SKILL.md"); got[0].Path != want {
 		t.Errorf("path = %q, want the link location %q", got[0].Path, want)
 	}
 }
@@ -215,9 +215,44 @@ func TestDiscoverSourcesWalksLinkedDirOnce(t *testing.T) {
 	if len(errs) != 0 || len(got) != 1 {
 		t.Fatalf("skills=%#v errs=%v", got, errs)
 	}
-	if want := filepath.Join(root, "alias", "SKILL.md"); got[0].Path != want {
+	if want := filepath.Join(mustEvalSymlinks(t, root), "shared", "SKILL.md"); got[0].Path != want {
 		t.Errorf("path = %q, want %q", got[0].Path, want)
 	}
+}
+
+func TestDiscoverSourcesKeepsUnnamedRealSkillWhenAliasSortsFirst(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "z", "review")
+	writeSkill(t, real, "", "body")
+	linkDir(t, real, filepath.Join(root, "alias"))
+
+	got, errs := DiscoverSources([]Source{{Root: root}}, false)
+	if len(errs) != 0 || len(got) != 1 {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+	if got[0].Name != "z-review" || got[0].Path != filepath.Join(mustEvalSymlinks(t, root), "z", "review", "SKILL.md") {
+		t.Errorf("skill = %#v, want the real directory name and path", got[0])
+	}
+}
+
+func TestDiscoverSourcesIgnoresCyclicSymlink(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, filepath.Join(root, "review"), "name: review", "body")
+	linkDir(t, filepath.Join(root, "loop"), filepath.Join(root, "loop"))
+
+	got, errs := DiscoverSources([]Source{{Root: root}}, false)
+	if len(errs) != 0 || len(got) != 1 || got[0].Name != "review" {
+		t.Fatalf("skills=%#v errs=%v", got, errs)
+	}
+}
+
+func mustEvalSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }
 
 func writeSkill(t *testing.T, dir, front, body string) {

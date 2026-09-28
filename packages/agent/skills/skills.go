@@ -35,6 +35,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // Skill is one discovered SKILL.md file.
@@ -215,9 +216,11 @@ func scanSource(source Source) ([]*Skill, []error) {
 	}
 	// filepath.WalkDir does not descend into symlinked directories, which
 	// would silently drop a skill directory that links into a shared
-	// checkout. The walk below follows those links and records every
-	// resolved directory so a link cycle cannot recurse forever.
+	// checkout. Walk real directories before following links so an alias
+	// cannot rename an existing unnamed skill. Record resolved directories
+	// so a link cycle cannot recurse forever.
 	visited := map[string]bool{}
+	var linkedDirs []string
 	var walk func(dir string)
 	walk = func(dir string) {
 		resolved, err := filepath.EvalSymlinks(dir)
@@ -243,15 +246,15 @@ func scanSource(source Source) ([]*Skill, []error) {
 			if d.Type()&fs.ModeSymlink != 0 {
 				info, statErr := os.Stat(path) // resolves the link
 				if statErr != nil {
-					// A dangling link is not a skill. Anything else
-					// (permissions, I/O) is worth reporting.
-					if !errors.Is(statErr, fs.ErrNotExist) {
+					// Dangling and cyclic links are not skills. Anything
+					// else (permissions, I/O) is worth reporting.
+					if !errors.Is(statErr, fs.ErrNotExist) && !errors.Is(statErr, syscall.ELOOP) {
 						errs = append(errs, fmt.Errorf("%s: %w", path, statErr))
 					}
 					continue
 				}
 				if info.IsDir() {
-					walk(path)
+					linkedDirs = append(linkedDirs, path)
 					continue
 				}
 			}
@@ -278,6 +281,9 @@ func scanSource(source Source) ([]*Skill, []error) {
 		}
 	}
 	walk(root)
+	for i := 0; i < len(linkedDirs); i++ {
+		walk(linkedDirs[i])
+	}
 	return out, errs
 }
 
