@@ -74,10 +74,14 @@ Explicit `--ext` bundles take precedence over environment, project, global, and
 compatibility sources. Duplicate names from different files keep the
 higher-precedence file and report a diagnostic. Rediscovering the same file
 under the same skill name (including through a symlink) is silently ignored.
-This includes overlapping project and global locations when running from your
-home directory. `--no-ext` omits implicit extension bundles;
-`--no-ext --ext PATH` loads only the explicitly named bundle. `--no-skill`
-disables all skills, including extension and built-in skills.
+Skill directories may themselves be symlinks, so a checkout can be kept in one
+place and linked into a skills directory. Real directories are scanned before
+links, so an alias cannot rename an existing unnamed skill. Link cycles are
+ignored, a directory reached twice through links is scanned once, and a link
+that points at nothing is skipped. This includes overlapping project and global
+locations when running from your home directory. `--no-ext` omits implicit
+extension bundles. `--no-ext --ext PATH` loads only the explicitly named bundle.
+`--no-skill` disables all skills, including extension and built-in skills.
 
 When `XDG_STATE_HOME` is set on any platform, `$ZOT_HOME` defaults to
 `$XDG_STATE_HOME/zot`. Otherwise it defaults to `~/Library/Application Support/zot/`

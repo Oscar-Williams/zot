@@ -21,14 +21,21 @@
 //
 // The compat paths are deliberate: a SKILL.md written for any of
 // the related ecosystems works in zot unchanged.
+//
+// Discovery walks each source recursively and follows symlinked
+// directories, so a skill can be a link into a shared checkout. A link
+// cycle is ignored, and each resolved directory is walked only once.
 package skills
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // Skill is one discovered SKILL.md file.
@@ -207,48 +214,99 @@ func scanSource(source Source) ([]*Skill, []error) {
 	if err != nil {
 		return out, []error{fmt.Errorf("resolve %s: %w", source.Root, err)}
 	}
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", path, walkErr))
-			return nil
+	// filepath.WalkDir does not descend into symlinked directories, which
+	// would silently drop a skill directory that links into a shared
+	// checkout. Walk real directories before following links so an alias
+	// cannot rename an existing unnamed skill. Record resolved directories
+	// so a link cycle cannot recurse forever.
+	visited := map[string]bool{}
+	var linkedDirs []string
+	var walk func(dir string)
+	walk = func(dir string) {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("resolve %s: %w", dir, err))
+			return
 		}
-		if d.IsDir() || d.Name() != "SKILL.md" {
-			return nil
+		if visited[resolved] {
+			return
 		}
-		s, e := load(path, source.Label)
-		if e != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", path, e))
-			return nil
+		visited[resolved] = true
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", dir, err))
+			return
 		}
-		if s.Name == "" {
-			rel, e := filepath.Rel(root, filepath.Dir(path))
-			if e != nil {
-				errs = append(errs, e)
-				return nil
+		for _, d := range entries {
+			path := filepath.Join(dir, d.Name())
+			if d.IsDir() {
+				walk(path)
+				continue
 			}
-			parts := []string{}
-			if rel != "." {
-				for _, p := range strings.Split(filepath.ToSlash(rel), "/") {
-					if k := kebabCase(p); k != "" {
-						parts = append(parts, k)
+			if d.Type()&fs.ModeSymlink != 0 {
+				info, statErr := os.Stat(path) // resolves the link
+				if statErr != nil {
+					// Dangling and cyclic links are not skills. Anything
+					// else (permissions, I/O) is worth reporting.
+					if !errors.Is(statErr, fs.ErrNotExist) && !errors.Is(statErr, syscall.ELOOP) {
+						errs = append(errs, fmt.Errorf("%s: %w", path, statErr))
 					}
+					continue
+				}
+				if info.IsDir() {
+					linkedDirs = append(linkedDirs, path)
+					continue
 				}
 			}
-			if len(parts) == 0 {
-				parts = append(parts, kebabCase(filepath.Base(filepath.Dir(path))))
+			if d.Name() != "SKILL.md" {
+				continue
 			}
-			s.Name = strings.Join(parts, "-")
+			s, e := load(path, source.Label)
+			if e != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", path, e))
+				continue
+			}
+			if s.Name == "" {
+				name, e := deriveName(root, path)
+				if e != nil {
+					errs = append(errs, e)
+					continue
+				}
+				s.Name = name
+			}
+			if source.Prefix != "" {
+				s.Name = source.Prefix + s.Name
+			}
+			out = append(out, s)
 		}
-		if source.Prefix != "" {
-			s.Name = source.Prefix + s.Name
-		}
-		out = append(out, s)
-		return nil
-	})
-	if err != nil {
-		errs = append(errs, fmt.Errorf("scan %s: %w", root, err))
+	}
+	walk(root)
+	for i := 0; i < len(linkedDirs); i++ {
+		walk(linkedDirs[i])
 	}
 	return out, errs
+}
+
+// deriveName builds a skill name for a SKILL.md file that carries no
+// frontmatter `name`, from its directory path relative to the source root.
+func deriveName(root, path string) (string, error) {
+	dir := filepath.Dir(path)
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	var parts []string
+	if rel != "." {
+		for _, p := range strings.Split(filepath.ToSlash(rel), "/") {
+			if k := kebabCase(p); k != "" {
+				parts = append(parts, k)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, kebabCase(filepath.Base(dir)))
+	}
+	return strings.Join(parts, "-"), nil
 }
 
 // KebabCase converts a path component or display name to a stable skill name.
